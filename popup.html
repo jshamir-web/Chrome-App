@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Yofi Risk Score</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <header>
+      <div class="logo">
+        <span class="logo-icon">Y</span>
+        <span class="logo-text">Yofi <span class="logo-sub">Risk</span></span>
+      </div>
+      <button id="settingsBtn" class="icon-btn" title="Settings">&#9881;</button>
+    </header>
+
+    <!-- Settings panel -->
+    <div id="settingsPanel" class="settings-panel hidden">
+      <div class="settings-title">Yofi API Configuration</div>
+
+      <label>
+        Send endpoint <span class="label-hint">(POST events to Yofi)</span>
+        <input id="sendEndpoint" type="text" placeholder="https://api.yofi.ai/v1/events" />
+      </label>
+
+      <label>
+        Receive endpoint <span class="label-hint">(GET predictions from Yofi)</span>
+        <input id="receiveEndpoint" type="text" placeholder="https://api.yofi.ai/v1/predictions" />
+      </label>
+
+      <label>
+        API Key
+        <div class="input-row">
+          <input id="apiKey" type="password" placeholder="Bearer token or API key" />
+          <button id="toggleKey" class="btn-ghost btn-sm" type="button">Show</button>
+        </div>
+      </label>
+
+      <div class="settings-actions">
+        <button id="saveSettings" class="btn-primary">Save</button>
+        <button id="cancelSettings" class="btn-ghost">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Screenshot preview -->
+    <div id="screenshotSection">
+      <div id="screenshotPreview" class="screenshot-placeholder">
+        <span class="placeholder-text">&#128247; No screenshot — click Capture</span>
+      </div>
+      <div class="screenshot-controls">
+        <button id="captureBtn" class="btn-primary btn-sm">
+          &#128247; Capture Page
+        </button>
+        <button id="clearScreenshot" class="btn-ghost btn-sm hidden">&#10005; Clear</button>
+        <span id="tabUrl" class="tab-url"></span>
+      </div>
+    </div>
+
+    <!-- Risk score banner -->
+    <div id="scoreBanner" class="hidden">
+      <div class="score-left">
+        <div class="score-label">Risk Score</div>
+        <div id="scoreValue" class="score-value">—</div>
+      </div>
+      <div class="score-right">
+        <div id="scoreBar"><div id="scoreBarFill"></div></div>
+        <div id="scoreCategory" class="score-category"></div>
+      </div>
+    </div>
+
+    <!-- Chat messages -->
+    <div id="chatMessages" class="chat-messages"></div>
+
+    <!-- Input area -->
+    <div class="chat-input-row">
+      <textarea
+        id="chatInput"
+        placeholder="Describe what you see or ask about risk… (Enter to send)"
+        rows="1"
+      ></textarea>
+      <button id="sendBtn" class="btn-send" title="Send to Yofi">&#10148;</button>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
