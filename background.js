@@ -78,6 +78,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // Scrape PII from the origin tab
+  if (message.type === "SCRAPE_PAGE") {
+    if (originTabId) {
+      chrome.tabs.sendMessage(originTabId, { type: "SCRAPE_PAGE" }, (res) => {
+        if (chrome.runtime.lastError) sendResponse({ fields: {} });
+        else sendResponse(res || { fields: {} });
+      });
+    } else {
+      sendResponse({ fields: {} });
+    }
+    return true;
+  }
+
   // Send overlay directly to the origin tab
   if (message.type === "SHOW_OVERLAY" || message.type === "HIDE_OVERLAY") {
     const sendToTab = (tabId) => {

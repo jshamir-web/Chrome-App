@@ -6,11 +6,10 @@ const DEFAULT_SERVER = "https://yofi-server-production.up.railway.app";
 let screenshotDataUrl = null;
 let currentTabUrl     = "";
 
-// Conversational state machine
-// steps: "email" → "orderId" → "ready"
-let chatState   = "email";
-let customerEmail  = "";
+// Collected customer context (populated from page scrape or chat)
+let customerEmail   = "";
 let customerOrderId = "";
+let scrapedFields   = {};
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 const settingsBtn     = document.getElementById("settingsBtn");
@@ -39,7 +38,7 @@ const sendBtn         = document.getElementById("sendBtn");
   currentTabUrl = url || "";
 })();
 
-appendMessage("assistant", "What's the customer's email address?");
+appendMessage("assistant", "Click Capture Page and I'll automatically scan for customer info and generate a risk score.");
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 settingsBtn.addEventListener("click", () => settingsPanel.classList.toggle("hidden"));
@@ -54,15 +53,41 @@ saveSettingsBtn.addEventListener("click", () => {
 // ── Screenshot ────────────────────────────────────────────────────────────────
 captureBtn.addEventListener("click", async () => {
   captureBtn.disabled = true;
-  captureBtn.textContent = "Capturing…";
+  captureBtn.textContent = "Scanning…";
   try {
+    // 1. Screenshot
     const res = await sendToBackground({ type: "CAPTURE_TAB" });
     if (res.error) throw new Error(res.error);
     screenshotDataUrl = res.dataUrl;
     renderScreenshot(screenshotDataUrl);
-    appendMessage("assistant", "Screenshot captured! Now send a message to get a risk assessment.");
+
+    // 2. Scrape PII from the page
+    const scrapeRes = await sendToBackground({ type: "SCRAPE_PAGE" });
+    scrapedFields   = scrapeRes.fields || {};
+    customerEmail   = scrapedFields.email   || customerEmail;
+    customerOrderId = scrapedFields.orderId || customerOrderId;
+
+    // 3. Show what we found
+    const found = Object.entries(scrapedFields)
+      .filter(([k]) => !["pageTitle","pageUrl"].includes(k))
+      .map(([k, v]) => {
+        const labels = {
+          email: "Email", orderId: "Order ID", phone: "Phone", name: "Name",
+          ip: "IP", amount: "Amount", country: "Country", paymentMethod: "Payment",
+        };
+        return `• ${labels[k] || k}: ${v}`;
+      }).join("\n");
+
+    appendMessage("assistant", found
+      ? `Found the following on this page:\n${found}\n\nRunning risk assessment…`
+      : "No customer info found on this page — running a general assessment…"
+    );
+
+    // 4. Auto-run risk assessment
+    await runRiskAssessment("Analyze this page for fraud risk based on the detected customer information.");
+
   } catch (err) {
-    appendMessage("assistant", `Screenshot failed: ${err.message}`);
+    appendMessage("assistant", `Error: ${err.message}`);
   } finally {
     captureBtn.disabled = false;
     captureBtn.innerHTML = "&#128247; Capture Page";
@@ -98,37 +123,18 @@ sendBtn.addEventListener("click", sendMessage);
 async function sendMessage() {
   const text = chatInput.value.trim();
   if (!text) return;
-
   chatInput.value = "";
   autoResize();
   appendMessage("user", text);
+  await runRiskAssessment(text);
+}
 
-  // ── Conversational collection of email then order ID ──
-  if (chatState === "email") {
-    // Basic email check
-    if (!text.includes("@") || !text.includes(".")) {
-      appendMessage("assistant", "That doesn't look like a valid email. What's the customer's email address?");
-      return;
-    }
-    customerEmail = text;
-    chatState = "orderId";
-    appendMessage("assistant", `Got it — ${customerEmail}. What's the order ID?`);
-    return;
-  }
-
-  if (chatState === "orderId") {
-    customerOrderId = text;
-    chatState = "ready";
-    appendMessage("assistant", `Thanks! Order #${customerOrderId} noted. What would you like me to assess about this order? You can also capture the page first.`);
-    return;
-  }
-
-  // ── Ready: run risk assessment ──
+async function runRiskAssessment(prompt) {
   sendBtn.disabled = true;
   const thinkingEl = appendThinking();
 
   try {
-    const result = await callClaude(text, customerEmail, customerOrderId);
+    const result = await callClaude(prompt, customerEmail, customerOrderId, scrapedFields);
     thinkingEl.remove();
     appendMessage("assistant", result.explanation);
     updateScoreBanner(result.score);
@@ -142,10 +148,12 @@ async function sendMessage() {
       type: "SHOW_OVERLAY",
       score: result.score,
       category,
-      email: customerEmail,
-      orderId: customerOrderId,
+      fields: scrapedFields,
     });
     hideOverlayBtn.classList.remove("hidden");
+
+    // Invite follow-up
+    appendMessage("assistant", "Want me to dig deeper? Ask me anything about this order or customer — I can check for specific fraud signals, explain the score, or reassess with more context.");
 
   } catch (err) {
     thinkingEl.remove();
@@ -156,7 +164,7 @@ async function sendMessage() {
 }
 
 // ── Yofi Server API ───────────────────────────────────────────────────────────
-async function callClaude(userMessage, email, orderId) {
+async function callClaude(userMessage, email, orderId, extraFields = {}) {
   const serverUrl = (await getStorage(SK.serverUrl)) || DEFAULT_SERVER;
 
   const res = await fetch(`${serverUrl}/assess`, {
@@ -164,9 +172,10 @@ async function callClaude(userMessage, email, orderId) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       message:    userMessage,
-      email,
-      orderId,
-      pageUrl:    currentTabUrl || "",
+      email:      email || extraFields.email || "",
+      orderId:    orderId || extraFields.orderId || "",
+      pageUrl:    currentTabUrl || extraFields.pageUrl || "",
+      fields:     extraFields,
       screenshot: screenshotDataUrl || null,
     }),
   });
