@@ -166,6 +166,59 @@ header {
 .btn-send:hover { background: var(--accent-hover); }
 .btn-send:disabled { opacity: .45; cursor: not-allowed; }
 
+/* ── Prediction card ── */
+.prediction-card {
+  background: var(--surface); border: 1.5px solid; border-radius: 12px;
+  overflow: hidden; font-size: 12px; width: 100%;
+}
+.pred-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; border-bottom: 1px solid;
+}
+.pred-score-block { text-align: center; flex-shrink: 0; }
+.pred-score { font-size: 30px; font-weight: 800; line-height: 1; }
+.pred-severity { font-size: 9px; text-transform: uppercase; letter-spacing: .5px; margin-top: 2px; }
+.pred-meta { flex: 1; min-width: 0; }
+.pred-label { font-size: 13px; font-weight: 600; color: var(--text); text-transform: capitalize; }
+.pred-id { font-size: 10px; color: var(--muted); margin-top: 2px; font-family: monospace; }
+.pred-bar-track { height: 4px; background: var(--surface2); }
+.pred-bar-fill { height: 100%; border-radius: 0; transition: width .5s; }
+.pred-tags { display: flex; gap: 5px; flex-wrap: wrap; padding: 8px 14px; border-bottom: 1px solid var(--border); }
+.pred-tag { background: var(--surface2); border-radius: 20px; padding: 2px 8px; font-size: 10px; color: var(--muted); }
+.pred-section { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.pred-section:last-child { border-bottom: none; }
+.pred-section-title { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 7px; }
+.pred-text { font-size: 12px; color: var(--text); line-height: 1.5; }
+
+/* Signals */
+.signal-row { display: flex; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.signal-row:last-child { border-bottom: none; }
+.signal-impact {
+  width: 30px; height: 30px; border-radius: 7px; border: 1px solid;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; flex-shrink: 0;
+}
+.signal-body { flex: 1; min-width: 0; }
+.signal-title { font-size: 11px; font-weight: 600; color: var(--text); }
+.signal-desc { font-size: 10px; color: var(--muted); line-height: 1.4; margin-top: 2px; }
+.signal-chips { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 4px; }
+.chip { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 1px 6px; font-size: 9px; color: var(--muted); }
+.chip-plain { font-size: 9px; color: var(--muted); padding: 2px 0; }
+
+/* Segments */
+.segment-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+.segment-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.segment-name { font-size: 11px; font-weight: 600; color: var(--text); }
+.segment-code { font-size: 10px; color: var(--muted); flex: 1; }
+.segment-type { margin-left: auto; }
+
+/* Analytics */
+.analytic-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--border); }
+.analytic-row:last-child { border-bottom: none; }
+.analytic-name { font-size: 10px; color: var(--muted); text-transform: capitalize; }
+.analytic-val { font-size: 11px; font-weight: 600; color: var(--text); }
+.analytic-period { font-size: 9px; color: var(--muted); font-weight: 400; }
+
 /* ── Spinner dots ── */
 @keyframes blink { 0%,80%,100% { opacity:.2 } 40% { opacity:1 } }
 .dots span { animation: blink 1.2s infinite both; }

@@ -134,26 +134,25 @@ async function runRiskAssessment(prompt) {
   const thinkingEl = appendThinking();
 
   try {
-    const result = await callClaude(prompt, customerEmail, customerOrderId, scrapedFields);
+    const pred = await callClaude(prompt, customerEmail, customerOrderId, scrapedFields);
     thinkingEl.remove();
-    appendMessage("assistant", result.explanation);
-    updateScoreBanner(result.score);
 
-    const category = result.score >= 80 ? "Critical Risk"
-      : result.score >= 60 ? "High Risk"
-      : result.score >= 35 ? "Medium Risk"
-      : "Low Risk";
+    // Render the prediction card in chat
+    renderPredictionCard(pred);
 
-    await sendToBackground({
-      type: "SHOW_OVERLAY",
-      score: result.score,
-      category,
-      fields: scrapedFields,
-    });
+    // Update score banner from top prediction
+    const topPred = pred.predictions?.[0];
+    if (topPred) {
+      const score = Math.round((topPred.predictedScore || 0) * 100);
+      updateScoreBanner(score, topPred.severity);
+    }
+
+    // Push overlay to page
+    await sendToBackground({ type: "SHOW_OVERLAY", prediction: pred });
     hideOverlayBtn.classList.remove("hidden");
 
     // Invite follow-up
-    appendMessage("assistant", "Want me to dig deeper? Ask me anything about this order or customer — I can check for specific fraud signals, explain the score, or reassess with more context.");
+    appendMessage("assistant", "Want me to dig deeper? Ask about specific signals, explain the score, or reassess with more context.");
 
   } catch (err) {
     thinkingEl.remove();
@@ -161,6 +160,94 @@ async function runRiskAssessment(prompt) {
   } finally {
     sendBtn.disabled = false;
   }
+}
+
+function renderPredictionCard(pred) {
+  const topPred  = pred.predictions?.[0] || {};
+  const score    = Math.round((topPred.predictedScore || 0) * 100);
+  const severity = topPred.severity || "low";
+  const colors   = { low: "#5bf5a3", medium: "#f5a35b", high: "#f55b5b", critical: "#ff2222" };
+  const color    = colors[severity] || "#7a7f9a";
+  const label    = (topPred.predictedLabel || "").replace(/_/g, " ");
+
+  const wrap = document.createElement("div");
+  wrap.className = "msg assistant";
+
+  const card = document.createElement("div");
+  card.className = "prediction-card";
+  card.style.cssText = `border-color:${color}44`;
+
+  // ── Score header
+  card.innerHTML = `
+    <div class="pred-header" style="border-color:${color}33">
+      <div class="pred-score-block">
+        <div class="pred-score" style="color:${color}">${score}</div>
+        <div class="pred-severity" style="color:${color}">${severity} risk</div>
+      </div>
+      <div class="pred-meta">
+        <div class="pred-label">${label}</div>
+        <div class="pred-id">${pred.id || ""}</div>
+      </div>
+    </div>
+    <div class="pred-bar-track"><div class="pred-bar-fill" style="width:${score}%;background:${color}"></div></div>
+
+    ${(pred.tags||[]).length ? `
+    <div class="pred-tags">
+      ${pred.tags.map(t => `<span class="pred-tag">${t.replace(/_/g," ")}</span>`).join("")}
+    </div>` : ""}
+
+    ${topPred.justification ? `
+    <div class="pred-section">
+      <div class="pred-section-title">Justification</div>
+      <div class="pred-text">${topPred.justification}</div>
+    </div>` : ""}
+
+    ${(topPred.signals||[]).length ? `
+    <div class="pred-section">
+      <div class="pred-section-title">Signals</div>
+      ${topPred.signals.map(sig => {
+        const sc = colors[sig.severity] || "#7a7f9a";
+        return `<div class="signal-row">
+          <div class="signal-impact" style="color:${sc};border-color:${sc}55;background:${sc}11">${Math.round(sig.impactScore*100)}</div>
+          <div class="signal-body">
+            <div class="signal-title">${sig.title}</div>
+            <div class="signal-desc">${sig.description}</div>
+            <div class="signal-chips">
+              <span class="chip">${sig.category}</span>
+              <span class="chip" style="color:${sc};border-color:${sc}55">${sig.severity}</span>
+              <span class="chip-plain">val: ${sig.value}</span>
+            </div>
+          </div>
+        </div>`;
+      }).join("")}
+    </div>` : ""}
+
+    ${(pred.segments||[]).length ? `
+    <div class="pred-section">
+      <div class="pred-section-title">Segments</div>
+      ${pred.segments.map(seg => `
+        <div class="segment-row">
+          <div class="segment-dot" style="background:${color}"></div>
+          <div class="segment-name">${seg.name}</div>
+          <div class="segment-code">${seg.code}</div>
+          <div class="segment-type chip">${seg.segmentType}</div>
+        </div>`).join("")}
+    </div>` : ""}
+
+    ${(pred.analytics||[]).length ? `
+    <div class="pred-section">
+      <div class="pred-section-title">Analytics</div>
+      ${pred.analytics.map(a => `
+        <div class="analytic-row">
+          <div class="analytic-name">${a.metricName.replace(/_/g," ")}</div>
+          <div class="analytic-val">${a.metricValue} <span class="analytic-period">${a.period}</span></div>
+        </div>`).join("")}
+    </div>` : ""}
+  `;
+
+  wrap.appendChild(card);
+  chatMessages.appendChild(wrap);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
 // ── Yofi Server API ───────────────────────────────────────────────────────────
@@ -185,23 +272,25 @@ async function callClaude(userMessage, email, orderId, extraFields = {}) {
     throw new Error(`Server error ${res.status}: ${body}`);
   }
 
-  return res.json(); // { score, explanation }
+  return res.json(); // Yofi prediction format
 }
 
 // ── Score banner ──────────────────────────────────────────────────────────────
-function updateScoreBanner(score) {
+function updateScoreBanner(score, severity) {
   score = Math.max(0, Math.min(100, score));
   scoreBanner.classList.remove("hidden");
   scoreValueEl.textContent = score;
 
-  let color, label;
-  if      (score >= 80) { color = "var(--danger)"; label = "Critical Risk"; }
-  else if (score >= 60) { color = "var(--danger)"; label = "High Risk"; }
-  else if (score >= 35) { color = "var(--warn)";   label = "Medium Risk"; }
-  else                  { color = "var(--ok)";      label = "Low Risk"; }
+  const map = {
+    critical: { color: "var(--danger)", label: "Critical Risk" },
+    high:     { color: "var(--danger)", label: "High Risk" },
+    medium:   { color: "var(--warn)",   label: "Medium Risk" },
+    low:      { color: "var(--ok)",     label: "Low Risk" },
+  };
+  const { color, label } = map[severity] || (score >= 80 ? map.critical : score >= 60 ? map.high : score >= 35 ? map.medium : map.low);
 
-  scoreValueEl.style.color          = color;
-  scoreBarFill.style.width          = `${score}%`;
+  scoreValueEl.style.color           = color;
+  scoreBarFill.style.width           = `${score}%`;
   scoreBarFill.style.backgroundColor = color;
   scoreCategoryEl.textContent        = label;
   scoreCategoryEl.style.color        = color;
