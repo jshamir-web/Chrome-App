@@ -1,6 +1,6 @@
 // ── Storage keys ──────────────────────────────────────────────────────────────
 const SK = { serverUrl: "yofi_server_url" };
-const DEFAULT_SERVER = "https://your-server.railway.app"; // updated after deploy
+const DEFAULT_SERVER = "https://yofi-server-production.up.railway.app";
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let screenshotDataUrl = null;
