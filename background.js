@@ -1,3 +1,38 @@
+// Open popup as a persistent window so it stays open when clicking the page
+let panelWindowId = null;
+
+chrome.action.onClicked.addListener(() => {
+  if (panelWindowId !== null) {
+    // Focus existing window if already open
+    chrome.windows.update(panelWindowId, { focused: true }, (win) => {
+      if (chrome.runtime.lastError) {
+        // Window was closed, open a new one
+        openPanel();
+      }
+    });
+  } else {
+    openPanel();
+  }
+});
+
+function openPanel() {
+  chrome.windows.create({
+    url:    chrome.runtime.getURL("popup.html"),
+    type:   "popup",
+    width:  440,
+    height: 620,
+    top:    80,
+    left:   window.screen?.availWidth ? window.screen.availWidth - 460 : 900,
+  }, (win) => {
+    panelWindowId = win.id;
+  });
+}
+
+// Clear the reference when the panel is closed
+chrome.windows.onRemoved.addListener((windowId) => {
+  if (windowId === panelWindowId) panelWindowId = null;
+});
+
 // Find the last-focused normal browser window (not the popup window)
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
