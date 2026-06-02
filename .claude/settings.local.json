@@ -8,7 +8,10 @@
       "Bash(git add *)",
       "Bash(git commit *)",
       "Bash(gh repo *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(mkdir -p /Users/jordanshamir/yofi-server)",
+      "Read(//Users/jordanshamir/**)",
+      "Bash(npm install *)"
     ]
   }
 }

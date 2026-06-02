@@ -1,7 +1,6 @@
 // ── Storage keys ──────────────────────────────────────────────────────────────
-const SK = { apiKey: "anthropic_api_key" };
-const CLAUDE_ENDPOINT = "https://api.anthropic.com/v1/messages";
-const CLAUDE_MODEL    = "claude-3-5-haiku-20241022";
+const SK = { serverUrl: "yofi_server_url" };
+const DEFAULT_SERVER = "https://your-server.railway.app"; // updated after deploy
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let screenshotDataUrl = null;
@@ -17,7 +16,6 @@ let customerOrderId = "";
 const settingsBtn     = document.getElementById("settingsBtn");
 const settingsPanel   = document.getElementById("settingsPanel");
 const apiKeyInput     = document.getElementById("apiKey");
-const toggleKeyBtn    = document.getElementById("toggleKey");
 const saveSettingsBtn = document.getElementById("saveSettings");
 const cancelSettings  = document.getElementById("cancelSettings");
 const captureBtn      = document.getElementById("captureBtn");
@@ -34,8 +32,8 @@ const sendBtn         = document.getElementById("sendBtn");
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async () => {
-  const data = await getStorageMulti([SK.apiKey]);
-  apiKeyInput.value = data[SK.apiKey] || "";
+  const data = await getStorageMulti([SK.serverUrl]);
+  apiKeyInput.value = data[SK.serverUrl] || DEFAULT_SERVER;
 
   const { url } = await sendToBackground({ type: "GET_ACTIVE_TAB_URL" });
   currentTabUrl = url || "";
@@ -46,15 +44,10 @@ appendMessage("assistant", "What's the customer's email address?");
 // ── Settings ──────────────────────────────────────────────────────────────────
 settingsBtn.addEventListener("click", () => settingsPanel.classList.toggle("hidden"));
 cancelSettings.addEventListener("click", () => settingsPanel.classList.add("hidden"));
-toggleKeyBtn.addEventListener("click", () => {
-  const hide = apiKeyInput.type === "password";
-  apiKeyInput.type = hide ? "text" : "password";
-  toggleKeyBtn.textContent = hide ? "Hide" : "Show";
-});
 saveSettingsBtn.addEventListener("click", () => {
-  chrome.storage.local.set({ [SK.apiKey]: apiKeyInput.value.trim() }, () => {
+  chrome.storage.local.set({ [SK.serverUrl]: apiKeyInput.value.trim() }, () => {
     settingsPanel.classList.add("hidden");
-    appendMessage("assistant", "API key saved.");
+    appendMessage("assistant", "Server URL saved.");
   });
 });
 
@@ -162,75 +155,28 @@ async function sendMessage() {
   }
 }
 
-// ── Claude API ────────────────────────────────────────────────────────────────
+// ── Yofi Server API ───────────────────────────────────────────────────────────
 async function callClaude(userMessage, email, orderId) {
-  const apiKey = (await getStorage(SK.apiKey)) || "";
-  if (!apiKey) throw new Error("No Anthropic API key set. Click ⚙ to add one.");
+  const serverUrl = (await getStorage(SK.serverUrl)) || DEFAULT_SERVER;
 
-  const systemPrompt = `You are a fraud risk analyst for an e-commerce platform powered by Yofi.
-Given a customer's email, order ID, page context, and analyst notes, you assess fraud risk.
-
-ALWAYS respond with valid JSON in this exact shape:
-{
-  "score": <integer 0-100>,
-  "explanation": "<2-3 sentence plain-English summary of the risk assessment and key signals>"
-}
-
-Score guide:
-- 0-34: Low risk — approve
-- 35-59: Medium risk — flag for review
-- 60-79: High risk — hold and verify
-- 80-100: Critical risk — block
-
-Be realistic and specific. Reference the email, order ID, and any page context provided.`;
-
-  const userContent = [
-    {
-      type: "text",
-      text: `Customer Email: ${email}\nOrder ID: ${orderId}\nPage URL: ${currentTabUrl || "unknown"}\nAnalyst note: ${userMessage}`,
-    },
-    ...(screenshotDataUrl ? [{
-      type: "image",
-      source: {
-        type: "base64",
-        media_type: "image/png",
-        data: screenshotDataUrl.replace("data:image/png;base64,", ""),
-      },
-    }] : []),
-  ];
-
-  const res = await fetch(CLAUDE_ENDPOINT, {
+  const res = await fetch(`${serverUrl}/assess`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: CLAUDE_MODEL,
-      max_tokens: 512,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userContent }],
+      message:    userMessage,
+      email,
+      orderId,
+      pageUrl:    currentTabUrl || "",
+      screenshot: screenshotDataUrl || null,
     }),
   });
 
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Claude API error ${res.status}: ${body}`);
+    throw new Error(`Server error ${res.status}: ${body}`);
   }
 
-  const data = await res.json();
-  const raw  = data.content?.[0]?.text || "{}";
-
-  // Strip markdown code fences if Claude wraps the JSON
-  const cleaned = raw.replace(/```json\n?/g, "").replace(/```/g, "").trim();
-  const parsed  = JSON.parse(cleaned);
-
-  return {
-    score:       Math.max(0, Math.min(100, Number(parsed.score) || 0)),
-    explanation: parsed.explanation || raw,
-  };
+  return res.json(); // { score, explanation }
 }
 
 // ── Score banner ──────────────────────────────────────────────────────────────
