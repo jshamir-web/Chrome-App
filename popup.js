@@ -11,6 +11,9 @@ let customerEmail   = "";
 let customerOrderId = "";
 let scrapedFields   = {};
 
+// Conversation history sent to server with every message
+let conversationHistory = []; // [{ role: "user"|"assistant", content: string }]
+
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 const settingsBtn     = document.getElementById("settingsBtn");
 const settingsPanel   = document.getElementById("settingsPanel");
@@ -126,32 +129,39 @@ async function sendMessage() {
   chatInput.value = "";
   autoResize();
   appendMessage("user", text);
+  conversationHistory.push({ role: "user", content: text });
 
-  // If the message is about Yofi docs/guidance, use the agent
-  const isDocQuery = /how|what|why|explain|guide|docs?|integrate|api|endpoint|yofi|recommend|help|setup|configure/i.test(text)
-    && !/risk|score|fraud|assess|chargeback|suspicious|flag|this order|this customer/i.test(text);
+  // Risk keywords → assess endpoint; everything else → agent /chat
+  const isRisk = /risk|score|fraud|assess|chargeback|suspicious|flag|this order|this customer|block|approve/i.test(text);
 
-  if (isDocQuery) {
-    await askAgent(text);
-  } else {
+  if (isRisk && scrapedFields && Object.keys(scrapedFields).length) {
     await runRiskAssessment(text);
+  } else {
+    await askAgent(text);
   }
 }
 
 async function askAgent(text) {
   sendBtn.disabled = true;
-  const thinkingEl = appendThinking("Looking up Yofi docs");
+  const thinkingEl = appendThinking("Thinking");
   try {
     const serverUrl = (await getStorage(SK.serverUrl)) || DEFAULT_SERVER;
     const res = await fetch(`${serverUrl}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text }),
+      body: JSON.stringify({
+        message: text,
+        history: conversationHistory.slice(-10), // last 10 turns
+      }),
     });
-    if (!res.ok) throw new Error(`Server error ${res.status}`);
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Server error ${res.status}: ${err}`);
+    }
     const { answer } = await res.json();
     thinkingEl.remove();
     appendMessage("assistant", answer);
+    conversationHistory.push({ role: "assistant", content: answer });
   } catch (err) {
     thinkingEl.remove();
     appendMessage("assistant", `Error: ${err.message}`);
@@ -181,6 +191,10 @@ async function runRiskAssessment(prompt) {
     // Push overlay to page
     await sendToBackground({ type: "SHOW_OVERLAY", prediction: pred });
     hideOverlayBtn.classList.remove("hidden");
+
+    // Store in history
+    const summary = `Risk score: ${Math.round((pred.predictions?.[0]?.predictedScore||0)*100)} — ${pred.predictions?.[0]?.justification||""}`;
+    conversationHistory.push({ role: "assistant", content: summary });
 
     // Invite follow-up
     appendMessage("assistant", "Want me to dig deeper? Ask about specific signals, explain the score, or reassess with more context.");
