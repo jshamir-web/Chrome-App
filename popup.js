@@ -7,6 +7,12 @@ const CLAUDE_MODEL    = "claude-3-5-haiku-20241022";
 let screenshotDataUrl = null;
 let currentTabUrl     = "";
 
+// Conversational state machine
+// steps: "email" → "orderId" → "ready"
+let chatState   = "email";
+let customerEmail  = "";
+let customerOrderId = "";
+
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 const settingsBtn     = document.getElementById("settingsBtn");
 const settingsPanel   = document.getElementById("settingsPanel");
@@ -25,9 +31,6 @@ const scoreCategoryEl = document.getElementById("scoreCategory");
 const chatMessages    = document.getElementById("chatMessages");
 const chatInput       = document.getElementById("chatInput");
 const sendBtn         = document.getElementById("sendBtn");
-const emailInput      = document.getElementById("customerEmail");
-const orderIdInput    = document.getElementById("orderId");
-const formError       = document.getElementById("formError");
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async () => {
@@ -38,7 +41,7 @@ const formError       = document.getElementById("formError");
   currentTabUrl = url || "";
 })();
 
-appendMessage("assistant", "Enter the customer email and order ID, capture the page, then ask me to assess the risk.");
+appendMessage("assistant", "What's the customer's email address?");
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 settingsBtn.addEventListener("click", () => settingsPanel.classList.toggle("hidden"));
@@ -100,16 +103,6 @@ chatInput.addEventListener("keydown", (e) => {
 sendBtn.addEventListener("click", sendMessage);
 
 async function sendMessage() {
-  // Validate customer fields
-  const email   = emailInput.value.trim();
-  const orderId = orderIdInput.value.trim();
-  if (!email || !orderId) {
-    formError.classList.remove("hidden");
-    emailInput.focus();
-    return;
-  }
-  formError.classList.add("hidden");
-
   const text = chatInput.value.trim();
   if (!text) return;
 
@@ -117,16 +110,36 @@ async function sendMessage() {
   autoResize();
   appendMessage("user", text);
 
+  // ── Conversational collection of email then order ID ──
+  if (chatState === "email") {
+    // Basic email check
+    if (!text.includes("@") || !text.includes(".")) {
+      appendMessage("assistant", "That doesn't look like a valid email. What's the customer's email address?");
+      return;
+    }
+    customerEmail = text;
+    chatState = "orderId";
+    appendMessage("assistant", `Got it — ${customerEmail}. What's the order ID?`);
+    return;
+  }
+
+  if (chatState === "orderId") {
+    customerOrderId = text;
+    chatState = "ready";
+    appendMessage("assistant", `Thanks! Order #${customerOrderId} noted. What would you like me to assess about this order? You can also capture the page first.`);
+    return;
+  }
+
+  // ── Ready: run risk assessment ──
   sendBtn.disabled = true;
   const thinkingEl = appendThinking();
 
   try {
-    const result = await callClaude(text, email, orderId);
+    const result = await callClaude(text, customerEmail, customerOrderId);
     thinkingEl.remove();
     appendMessage("assistant", result.explanation);
     updateScoreBanner(result.score);
 
-    // Show overlay on the page
     const category = result.score >= 80 ? "Critical Risk"
       : result.score >= 60 ? "High Risk"
       : result.score >= 35 ? "Medium Risk"
@@ -136,8 +149,8 @@ async function sendMessage() {
       type: "SHOW_OVERLAY",
       score: result.score,
       category,
-      email,
-      orderId,
+      email: customerEmail,
+      orderId: customerOrderId,
     });
     hideOverlayBtn.classList.remove("hidden");
 
