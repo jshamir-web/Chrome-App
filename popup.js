@@ -14,7 +14,16 @@ let scrapedFields   = {};
 // Conversation history sent to server with every message
 let conversationHistory = []; // [{ role: "user"|"assistant", content: string }]
 
+// Session management
+let currentSessionId = null;
+const MAX_SESSIONS   = 30;
+
 // ── DOM refs ──────────────────────────────────────────────────────────────────
+const historyBtn      = document.getElementById("historyBtn");
+const newChatBtn      = document.getElementById("newChatBtn");
+const historySidebar  = document.getElementById("historySidebar");
+const closeHistory    = document.getElementById("closeHistory");
+const historyList     = document.getElementById("historyList");
 const settingsBtn     = document.getElementById("settingsBtn");
 const settingsPanel   = document.getElementById("settingsPanel");
 const apiKeyInput     = document.getElementById("apiKey");
@@ -41,7 +50,7 @@ const sendBtn         = document.getElementById("sendBtn");
   currentTabUrl = url || "";
 })();
 
-appendMessage("assistant", "Hey! I'm your Wyllo Fraud Analyst. I can assess risk on the current page, or help you understand fraud patterns, platform features, and how to protect your business. What brings you here today?");
+startNewSession();
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 settingsBtn.addEventListener("click", () => settingsPanel.classList.toggle("hidden"));
@@ -51,6 +60,95 @@ saveSettingsBtn.addEventListener("click", () => {
     settingsPanel.classList.add("hidden");
     appendMessage("assistant", "Server URL saved.");
   });
+});
+
+// ── Session management ────────────────────────────────────────────────────────
+function startNewSession() {
+  currentSessionId = `session_${Date.now()}`;
+  conversationHistory = [];
+  customerEmail   = "";
+  customerOrderId = "";
+  scrapedFields   = {};
+  screenshotDataUrl = null;
+  chatMessages.innerHTML = "";
+  scoreBanner.classList.add("hidden");
+  screenshotPreview.innerHTML = '<span class="placeholder-text">&#128247; No screenshot — click Capture</span>';
+  clearBtn.classList.add("hidden");
+  hideOverlayBtn.classList.add("hidden");
+  appendMessage("assistant", "Hey! I'm your Wyllo Fraud Analyst. I can assess risk on the current page, or help you understand fraud patterns, platform features, and how to protect your business. What brings you here today?");
+}
+
+async function saveSession() {
+  if (!currentSessionId || conversationHistory.length === 0) return;
+  const sessions = await loadSessions();
+  const existing = sessions.findIndex(s => s.id === currentSessionId);
+  const session = {
+    id:        currentSessionId,
+    title:     conversationHistory.find(m => m.role === "user")?.content?.slice(0, 50) || "New chat",
+    timestamp: Date.now(),
+    history:   conversationHistory,
+  };
+  if (existing >= 0) sessions[existing] = session;
+  else sessions.unshift(session);
+  const trimmed = sessions.slice(0, MAX_SESSIONS);
+  chrome.storage.local.set({ chat_sessions: trimmed });
+}
+
+function loadSessions() {
+  return new Promise(resolve => chrome.storage.local.get(["chat_sessions"], d => resolve(d.chat_sessions || [])));
+}
+
+async function loadSession(sessionId) {
+  const sessions = await loadSessions();
+  const session  = sessions.find(s => s.id === sessionId);
+  if (!session) return;
+  currentSessionId    = session.id;
+  conversationHistory = session.history || [];
+  customerEmail       = "";
+  customerOrderId     = "";
+  scrapedFields       = {};
+  screenshotDataUrl   = null;
+  chatMessages.innerHTML = "";
+  scoreBanner.classList.add("hidden");
+  screenshotPreview.innerHTML = '<span class="placeholder-text">&#128247; No screenshot — click Capture</span>';
+  clearBtn.classList.add("hidden");
+  hideOverlayBtn.classList.add("hidden");
+  // Re-render messages
+  for (const msg of conversationHistory) {
+    appendMessage(msg.role, msg.content);
+  }
+  historySidebar.classList.add("hidden");
+}
+
+async function renderHistory() {
+  const sessions = await loadSessions();
+  if (!sessions.length) {
+    historyList.innerHTML = '<div class="history-empty">No previous chats yet.</div>';
+    return;
+  }
+  historyList.innerHTML = "";
+  for (const s of sessions) {
+    const item = document.createElement("div");
+    item.className = `history-item${s.id === currentSessionId ? " active" : ""}`;
+    const date = new Date(s.timestamp).toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    item.innerHTML = `
+      <div class="history-item-title">${s.title}</div>
+      <div class="history-item-meta">${date} · ${s.history.length} messages</div>
+    `;
+    item.addEventListener("click", () => loadSession(s.id));
+    historyList.appendChild(item);
+  }
+}
+
+historyBtn.addEventListener("click", async () => {
+  historySidebar.classList.toggle("hidden");
+  if (!historySidebar.classList.contains("hidden")) await renderHistory();
+});
+closeHistory.addEventListener("click", () => historySidebar.classList.add("hidden"));
+newChatBtn.addEventListener("click", () => {
+  saveSession();
+  startNewSession();
+  historySidebar.classList.add("hidden");
 });
 
 // ── Screenshot ────────────────────────────────────────────────────────────────
@@ -130,6 +228,7 @@ async function sendMessage() {
   autoResize();
   appendMessage("user", text);
   conversationHistory.push({ role: "user", content: text });
+  saveSession();
 
   // Risk keywords → assess endpoint; everything else → agent /chat
   const isRisk = /risk|score|fraud|assess|chargeback|suspicious|flag|this order|this customer|block|approve/i.test(text);
@@ -159,9 +258,11 @@ async function askAgent(text) {
       throw new Error(`Server error ${res.status}: ${err}`);
     }
     const { answer } = await res.json();
+    const clean = stripMarkdown(answer);
     thinkingEl.remove();
-    appendMessage("assistant", answer);
-    conversationHistory.push({ role: "assistant", content: answer });
+    appendMessage("assistant", clean);
+    conversationHistory.push({ role: "assistant", content: clean });
+    saveSession();
   } catch (err) {
     thinkingEl.remove();
     appendMessage("assistant", `Error: ${err.message}`);
@@ -198,6 +299,7 @@ async function runRiskAssessment(prompt) {
 
     // Invite follow-up
     appendMessage("assistant", "Want me to dig deeper? Ask about specific signals, explain the score, or reassess with more context.");
+    saveSession();
 
   } catch (err) {
     thinkingEl.remove();
@@ -385,6 +487,15 @@ function sendToBackground(msg) {
     });
   });
 }
+function stripMarkdown(text) {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, "$1")  // bold
+    .replace(/\*(.*?)\*/g, "$1")       // italic
+    .replace(/`{1,3}(.*?)`{1,3}/g, "$1") // code
+    .replace(/^#{1,6}\s+/gm, "")       // headings
+    .trim();
+}
+
 function getStorage(key) {
   return new Promise((resolve) => chrome.storage.local.get([key], (d) => resolve(d[key])));
 }

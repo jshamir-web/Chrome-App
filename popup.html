@@ -14,7 +14,11 @@
         <span class="logo-icon">Y</span>
         <span class="logo-text">Yofi <span class="logo-sub">Risk</span></span>
       </div>
-      <button id="settingsBtn" class="icon-btn" title="Settings">&#9881;</button>
+      <div class="header-actions">
+        <button id="historyBtn" class="icon-btn" title="Chat history">&#9776;</button>
+        <button id="newChatBtn" class="icon-btn" title="New chat">&#43;</button>
+        <button id="settingsBtn" class="icon-btn" title="Settings">&#9881;</button>
+      </div>
     </header>
 
     <!-- Settings panel -->
@@ -28,6 +32,15 @@
         <button id="saveSettings" class="btn-primary">Save</button>
         <button id="cancelSettings" class="btn-ghost">Cancel</button>
       </div>
+    </div>
+
+    <!-- History sidebar -->
+    <div id="historySidebar" class="history-sidebar hidden">
+      <div class="history-header">
+        <span>Chat History</span>
+        <button id="closeHistory" class="icon-btn">&#10005;</button>
+      </div>
+      <div id="historyList" class="history-list"></div>
     </div>
 
     <!-- Screenshot preview -->
