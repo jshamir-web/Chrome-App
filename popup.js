@@ -41,7 +41,7 @@ const sendBtn         = document.getElementById("sendBtn");
   currentTabUrl = url || "";
 })();
 
-appendMessage("assistant", "Click Capture Page and I'll automatically scan for customer info and generate a risk score.");
+appendMessage("assistant", "Hey! I'm your Wyllo Fraud Analyst. I can assess risk on the current page, or help you understand fraud patterns, platform features, and how to protect your business. What brings you here today?");
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 settingsBtn.addEventListener("click", () => settingsPanel.classList.toggle("hidden"));
