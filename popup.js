@@ -126,7 +126,38 @@ async function sendMessage() {
   chatInput.value = "";
   autoResize();
   appendMessage("user", text);
-  await runRiskAssessment(text);
+
+  // If the message is about Yofi docs/guidance, use the agent
+  const isDocQuery = /how|what|why|explain|guide|docs?|integrate|api|endpoint|yofi|recommend|help|setup|configure/i.test(text)
+    && !/risk|score|fraud|assess|chargeback|suspicious|flag|this order|this customer/i.test(text);
+
+  if (isDocQuery) {
+    await askAgent(text);
+  } else {
+    await runRiskAssessment(text);
+  }
+}
+
+async function askAgent(text) {
+  sendBtn.disabled = true;
+  const thinkingEl = appendThinking("Looking up Yofi docs");
+  try {
+    const serverUrl = (await getStorage(SK.serverUrl)) || DEFAULT_SERVER;
+    const res = await fetch(`${serverUrl}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text }),
+    });
+    if (!res.ok) throw new Error(`Server error ${res.status}`);
+    const { answer } = await res.json();
+    thinkingEl.remove();
+    appendMessage("assistant", answer);
+  } catch (err) {
+    thinkingEl.remove();
+    appendMessage("assistant", `Error: ${err.message}`);
+  } finally {
+    sendBtn.disabled = false;
+  }
 }
 
 async function runRiskAssessment(prompt) {
@@ -313,12 +344,12 @@ function appendMessage(role, text) {
   return wrap;
 }
 
-function appendThinking() {
+function appendThinking(label = "Analysing") {
   const wrap   = document.createElement("div");
   wrap.className = "msg assistant thinking";
   const bubble = document.createElement("div");
   bubble.className = "msg-bubble dots";
-  bubble.innerHTML = "Analysing <span>•</span><span>•</span><span>•</span>";
+  bubble.innerHTML = `${label} <span>•</span><span>•</span><span>•</span>`;
   wrap.appendChild(bubble);
   chatMessages.appendChild(wrap);
   chatMessages.scrollTop = chatMessages.scrollHeight;
