@@ -22,7 +22,7 @@ function openPanel() {
     width:  440,
     height: 620,
     top:    80,
-    left:   window.screen?.availWidth ? window.screen.availWidth - 460 : 900,
+    left:   900,
   }, (win) => {
     panelWindowId = win.id;
   });
