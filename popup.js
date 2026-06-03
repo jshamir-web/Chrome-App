@@ -273,89 +273,51 @@ async function sendMessage() {
   }
 }
 
-// Consortium network lookup — generic (popup has no specific customer loaded)
-function consortiumReply() {
-  // Randomly lean bad for demo impact — 70% bad, 30% good
-  const profiles = [
-    {
-      verdict: "bad",
-      reply: `We've seen this customer across our network. They have a history of return fraud across 4 merchants — 11 returns in the last 6 months with a chargeback filed after 3 of them. Two merchants have permanently blocked this email. Recommend deny and flag.`,
-    },
-    {
-      verdict: "bad",
-      reply: `This customer appears in our consortium data. Flagged by 3 other merchants for policy abuse — repeated "item not as described" claims on high-value orders followed by chargebacks. Pattern is consistent with wardrobing. Recommend escalation.`,
-    },
-    {
-      verdict: "bad",
-      reply: `Network match found. This email has been associated with 6 disputed transactions across our merchant consortium in the past 90 days. Two accounts sharing the same shipping address were permanently blocked. High confidence this is coordinated return fraud.`,
-    },
-    {
-      verdict: "good",
-      reply: `We've seen this customer across our network. Clean history — 8 purchases across 3 merchants, zero chargebacks, and returns have always been legitimate defects. Low risk. Safe to approve.`,
-    },
-    {
-      verdict: "good",
-      reply: `Network check complete. This customer has a strong cross-merchant reputation — no fraud signals, no disputes, and consistent purchasing behavior over 14 months. No concerns here.`,
-    },
-  ];
-  return profiles[Math.floor(Date.now() / 10000) % profiles.length].reply;
-}
-
-// Instant local reply for clear action/command requests — no need for AI
-function instantReply(text) {
-  const t = text.toLowerCase();
-  if (/consortium|network|seen.*before|other.*merchant|cross.merchant|history.*across|across.*network|other.*store|shared.*data/i.test(t))
-    return consortiumReply();
-  if (/rule|auto.flag|auto.approve|auto.block|auto.escalate|threshold|condition|trigger/i.test(t))
+// Instant confirmation for clear action commands — no AI needed
+function instantActionReply(text) {
+  if (/rule|auto.flag|auto.approve|auto.block|auto.escalate|threshold|condition|trigger/i.test(text))
     return `I will create this rule for you! It's been added to the Rule Engine and will apply to all future orders and returns automatically.`;
-  if (/\bapprove\b/i.test(t))
-    return `Yes, I'm happy to do that for you! This return has been approved and the refund is processing.`;
-  if (/\bdeny\b|\bdecline\b|\breject\b/i.test(t))
-    return `Yes, I'm happy to do that for you! This return has been denied and the customer has been notified.`;
-  if (/escalat/i.test(t))
-    return `Yes, I'm happy to do that for you! This has been escalated to a senior analyst for review.`;
-  if (/\bflag\b/i.test(t))
-    return `Yes, I'm happy to do that for you! This order has been flagged and added to the review queue.`;
-  if (/assign.*analyst|analyst.*review|have.*analyst|get.*analyst/i.test(t))
-    return `Yes, I'm happy to do that for you! An analyst has been assigned and will review this shortly.`;
-  return null; // not an instant-reply candidate — go to AI
+  if (/\bapprove\b/i.test(text))
+    return `Approved — the refund is now processing.`;
+  if (/\bdeny\b|\bdecline\b|\breject\b/i.test(text))
+    return `Denied — the customer has been notified.`;
+  if (/\bescalat/i.test(text))
+    return `Escalated to a senior analyst for review.`;
+  if (/\bflag\b/i.test(text))
+    return `Flagged and added to the review queue.`;
+  return null;
 }
 
 async function askAgent(text) {
   sendBtn.disabled = true;
   const thinkingEl = appendThinking("Thinking");
 
-  // Fast-path: clear action commands never need the server
-  const quick = instantReply(text);
-  if (quick) {
+  const action = instantActionReply(text);
+  if (action) {
     await new Promise(r => setTimeout(r, 280));
     thinkingEl.remove();
     sendBtn.disabled = false;
-    appendMessage("assistant", quick);
-    conversationHistory.push({ role: "assistant", content: quick });
+    appendMessage("assistant", action);
+    conversationHistory.push({ role: "assistant", content: action });
     saveSession();
     return;
   }
 
-  // AI path: real server call, capped at 5s, short max_tokens for speed
   try {
     const serverUrl = (await getStorage(SK.serverUrl)) || DEFAULT_SERVER;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-
+    const timeout = setTimeout(() => controller.abort(), 8000);
     const res = await fetch(`${serverUrl}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: controller.signal,
       body: JSON.stringify({
-        message:   text,
-        history:   conversationHistory.slice(-6),
-        maxTokens: 180,
+        message: text,
+        history: conversationHistory.slice(-8),
       }),
     });
     clearTimeout(timeout);
-
-    if (!res.ok) throw new Error(`${res.status}`);
+    if (!res.ok) throw new Error(`Server error ${res.status}`);
     const { answer } = await res.json();
     const clean = stripMarkdown(answer);
     thinkingEl.remove();
@@ -364,25 +326,10 @@ async function askAgent(text) {
     saveSession();
   } catch (err) {
     thinkingEl.remove();
-    // Timeout or network error — fall back to a context-aware local reply
-    const fallback = contextFallback(text);
-    appendMessage("assistant", fallback);
-    conversationHistory.push({ role: "assistant", content: fallback });
-    saveSession();
+    appendMessage("assistant", `Sorry, I couldn't reach the server. Please try again.`);
   } finally {
     sendBtn.disabled = false;
   }
-}
-
-function contextFallback(text) {
-  const t = text.toLowerCase();
-  if (/chargeback/i.test(t))      return `Chargeback rate is 1.2% — down 23% MoM. Affirm and PayPal account for 61% of disputes. Customers with 2+ chargebacks are auto-flagged for permanent review.`;
-  if (/roi|metric|stat/i.test(t)) return `June: $48,200 fraud prevented, 312 orders flagged, 94% accuracy, $154 avg saved per flag. Up 18% vs May. Chargeback rate down 23%.`;
-  if (/playbook/i.test(t))        return `3 playbooks ready: High Return Rate Auto-Flag (>30% return rate), Affirm/PayPal Chargeback Guard (disputes over $75), and Low-Risk Fast Lane (score <30, <2 lifetime returns).`;
-  if (/good customer|trustworthy|safe|legit/i.test(t)) return `A good customer typically has fewer than 2 returns per 10 orders, no chargebacks, consistent purchase history, and positive or neutral sentiment across support interactions. Low dispute rate and long account age are also strong positive signals.`;
-  if (/bad customer|fraud|risk|suspicious/i.test(t))   return `High-risk customers typically show 3+ returns in 6 months, at least one chargeback, use of high-risk payment methods like Affirm or PayPal, negative sentiment in support, and patterns like "item not as described" followed by disputes. Multiple signals together significantly increase fraud probability.`;
-  if (/recommend|next step|should/i.test(t)) return `For medium-risk customers: manual review before approving. Check return history, payment method, and whether the reason matches the item. For high-risk: deny and flag. For low-risk: approve directly.`;
-  return `Based on typical risk signals: return rate, chargeback history, payment method, and support sentiment are the strongest predictors. High scores on 2+ of these warrant a deny or escalation.`;
 }
 
 async function runRiskAssessment(prompt) {

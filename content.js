@@ -193,28 +193,26 @@ function addOverlayChatPanel(pred, screenshot) {
     const thinkEl = appendChatThinking(msgsEl);
 
     try {
-      // Fast-path: clear action commands
-      const quick = overlayInstantReply(text, pred);
-      if (quick) {
+      // Fast-path for unambiguous action commands only
+      const action = overlayActionReply(text, pred);
+      if (action) {
         await new Promise(r => setTimeout(r, 280));
         thinkEl.remove();
-        appendChatBubble(msgsEl, quick, "ai");
-        chatHistory.push({ role: "assistant", content: quick });
-        syncOverlayChatToStorage(text, quick, pred);
+        appendChatBubble(msgsEl, action, "ai");
+        chatHistory.push({ role: "assistant", content: action });
+        syncOverlayChatToStorage(text, action, pred);
       } else {
-        // AI path: real call, 5s cap, short output
+        // Real AI call for everything else
         const serverUrl = await getOverlayServerUrl();
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 5000);
+        const timer = setTimeout(() => controller.abort(), 8000);
         const res = await fetch(`${serverUrl}/chat`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           signal: controller.signal,
           body: JSON.stringify({
-            message:   text,
-            history:   chatHistory.slice(-6),
-            maxTokens: 180,
-            context:   buildLoopContext(pred),
+            message: text,
+            history: chatHistory.slice(-8),
           }),
         });
         clearTimeout(timer);
@@ -230,10 +228,9 @@ function addOverlayChatPanel(pred, screenshot) {
       }
     } catch (err) {
       thinkEl.remove();
-      const fallback = customerVerdict(pred);
-      appendChatBubble(msgsEl, fallback, "ai");
-      chatHistory.push({ role: "assistant", content: fallback });
-      syncOverlayChatToStorage(text, fallback, pred);
+      appendChatBubble(msgsEl, "Sorry, couldn't reach the server. Please try again.", "error");
+      chatHistory.push({ role: "assistant", content: "" });
+      syncOverlayChatToStorage(text, "", pred);
     } finally {
       isThinking = false;
       sendEl.disabled = false;
@@ -346,26 +343,20 @@ function overlayConsortiumReply(pred) {
   }
 }
 
-function overlayInstantReply(text, pred) {
+function overlayActionReply(text, pred) {
   const c   = pred.customerInfo || {};
-  const top = pred.predictions?.[0] || {};
-  const score = Math.round((top.predictedScore || 0) * 100);
-  const rid = pred.id.replace("loop-", "");
-  if (/consortium|network|seen.*before|other.*merchant|cross.merchant|history.*across|across.*network|other.*store|shared.*data/i.test(text))
-    return overlayConsortiumReply(pred);
+  const rid = (pred.id || "").replace(/^[a-z]+-/, "");
   if (/rule|auto.flag|auto.approve|auto.block|auto.escalate|threshold|condition|trigger/i.test(text))
     return `I will create this rule for you! It's been added to the Rule Engine and will apply to all future orders and returns automatically.`;
   if (/\bapprove\b/i.test(text))
-    return `Yes, I'm happy to do that for you! Return #${rid} approved — $${c.returnAmt} refund is processing.`;
+    return `Approved — ${c.name ? `${c.name}'s ` : ""}refund${c.returnAmt ? ` of $${c.returnAmt}` : ""} is now processing.`;
   if (/\bdeny\b|\bdecline\b|\breject\b/i.test(text))
-    return `Yes, I'm happy to do that for you! Return #${rid} denied — ${c.name} has been notified.`;
-  if (/escalat/i.test(text))
-    return `Yes, I'm happy to do that for you! Escalated to a senior analyst for review.`;
+    return `Denied — ${c.name || "the customer"} has been notified.`;
+  if (/\bescalat/i.test(text))
+    return `Escalated to a senior analyst for review.`;
   if (/\bflag\b/i.test(text))
-    return `Yes, I'm happy to do that for you! ${c.name} has been flagged and added to the review queue.`;
-  if (/assign.*analyst|analyst.*review|have.*analyst/i.test(text))
-    return `Yes, I'm happy to do that for you! An analyst has been assigned to return #${rid}.`;
-  return null; // let AI handle it
+    return `${c.name || "Customer"} has been flagged and added to the review queue.`;
+  return null; // everything else → real AI
 }
 
 function syncOverlayChatToStorage(userMsg, aiMsg, pred) {
