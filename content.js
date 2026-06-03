@@ -1,43 +1,5 @@
 const OVERLAY_ID = "yofi-risk-overlay";
 
-// ── Auto-scan on page load ────────────────────────────────────────────────────
-(function autoScan() {
-  // Only run once per page; skip non-http pages
-  if (!location.href.startsWith("http")) return;
-
-  const fields = scrapePage();
-  const hasIdentifiers = fields.email || fields.orderId || fields.phone || fields.name;
-  if (!hasIdentifiers) return;
-
-  if (fields.email?.toLowerCase() === "jordan@yofi.ai") {
-    showOverlay({
-      id: "hardcoded-high-risk",
-      tags: ["flagged_account", "high_risk_email"],
-      predictions: [{
-        predictedLabel: "confirmed_fraud",
-        predictedScore: 0.97,
-        severity: "high",
-        justification: "This email address (jordan@yofi.ai) is a known high-risk identifier and has been automatically flagged.",
-        signals: [{
-          title: "Flagged Email Address",
-          description: "jordan@yofi.ai is hardcoded as a high-risk identifier.",
-          category: "identity",
-          severity: "high",
-          impactScore: 0.97,
-          value: fields.email,
-        }],
-      }],
-      segments: [],
-      analytics: [],
-    });
-    return;
-  }
-
-  chrome.runtime.sendMessage({ type: "AUTO_SCAN", fields }, () => {
-    // Ignore response — overlay will be pushed back if high risk
-    if (chrome.runtime.lastError) { /* extension not ready yet, ignore */ }
-  });
-})();
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "SHOW_OVERLAY") {
@@ -193,6 +155,14 @@ function showOverlay(pred) {
         <!-- Score bar -->
         <div style="background:#1a1d27;border-radius:4px;height:4px;margin-top:12px;overflow:hidden;">
           <div style="width:${score}%;height:100%;background:${color};border-radius:4px;"></div>
+        </div>
+
+        <!-- URL -->
+        <div style="margin-top:10px;padding:6px 10px;background:#12151f;border-radius:8px;border:1px solid #2e3248;
+          display:flex;align-items:center;gap:6px;overflow:hidden;">
+          <span style="font-size:9px;color:#7a7f9a;flex-shrink:0;text-transform:uppercase;letter-spacing:.5px;">URL</span>
+          <span style="font-size:10px;color:#a0a4c0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;"
+            title="${window.location.href}">${window.location.href}</span>
         </div>
 
         <!-- Tags -->
