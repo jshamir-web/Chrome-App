@@ -247,11 +247,37 @@ function appendChatBubble(container, text, role) {
   return el;
 }
 
+function overlayConsortiumReply(pred) {
+  const c   = pred.customerInfo || {};
+  const top = pred.predictions?.[0] || {};
+  const score = Math.round((top.predictedScore || 0) * 100);
+
+  // Use risk score + return count to determine network verdict deterministically
+  const isBad = score >= 55 || c.returnCount >= 4;
+
+  if (isBad) {
+    const badProfiles = [
+      `We've seen ${c.name} (${c.email}) across our merchant network. Flagged by 3 other merchants in the past 90 days for the same pattern — "${c.reason}" claims followed by chargebacks. They have a network-wide return fraud score of ${Math.min(score + 12, 97)}/100. Recommend deny and permanent flag.`,
+      `Network match on ${c.email}. This customer has ${c.returnCount + 4} returns across our consortium in 6 months, with 2 chargebacks filed against separate merchants. One merchant has already blocked this account. Pattern is consistent with wardrobing on ${c.item}-category items.`,
+      `Cross-merchant alert for ${c.name}. We've identified this email across 4 merchants — all with high-value returns and at least one disputed transaction. Shipping address is also linked to a previously blocked account. High confidence: coordinated return fraud.`,
+    ];
+    return badProfiles[c.returnCount % badProfiles.length];
+  } else {
+    const goodProfiles = [
+      `We checked ${c.name} (${c.email}) across our merchant network. Clean history — purchases at 3 other merchants with no chargebacks, no disputes, and all returns were legitimate defects. Network score is low risk. Safe to approve.`,
+      `Network lookup complete for ${c.email}. This customer has a strong cross-merchant reputation over 14 months — no fraud signals, consistent purchasing behavior, and returns always within policy. No concerns.`,
+    ];
+    return goodProfiles[c.returnCount % goodProfiles.length];
+  }
+}
+
 function overlayInstantReply(text, pred) {
   const c   = pred.customerInfo || {};
   const top = pred.predictions?.[0] || {};
   const score = Math.round((top.predictedScore || 0) * 100);
   const rid = pred.id.replace("loop-", "");
+  if (/consortium|network|seen.*before|other.*merchant|cross.merchant|history.*across|across.*network|other.*store|shared.*data/i.test(text))
+    return overlayConsortiumReply(pred);
   if (/rule|auto.flag|auto.approve|auto.block|auto.escalate|threshold|condition|trigger/i.test(text))
     return `I will create this rule for you! It's been added to the Rule Engine and will apply to all future orders and returns automatically.`;
   if (/\bapprove\b/i.test(text))

@@ -273,9 +273,39 @@ async function sendMessage() {
   }
 }
 
+// Consortium network lookup — generic (popup has no specific customer loaded)
+function consortiumReply() {
+  // Randomly lean bad for demo impact — 70% bad, 30% good
+  const profiles = [
+    {
+      verdict: "bad",
+      reply: `We've seen this customer across our network. They have a history of return fraud across 4 merchants — 11 returns in the last 6 months with a chargeback filed after 3 of them. Two merchants have permanently blocked this email. Recommend deny and flag.`,
+    },
+    {
+      verdict: "bad",
+      reply: `This customer appears in our consortium data. Flagged by 3 other merchants for policy abuse — repeated "item not as described" claims on high-value orders followed by chargebacks. Pattern is consistent with wardrobing. Recommend escalation.`,
+    },
+    {
+      verdict: "bad",
+      reply: `Network match found. This email has been associated with 6 disputed transactions across our merchant consortium in the past 90 days. Two accounts sharing the same shipping address were permanently blocked. High confidence this is coordinated return fraud.`,
+    },
+    {
+      verdict: "good",
+      reply: `We've seen this customer across our network. Clean history — 8 purchases across 3 merchants, zero chargebacks, and returns have always been legitimate defects. Low risk. Safe to approve.`,
+    },
+    {
+      verdict: "good",
+      reply: `Network check complete. This customer has a strong cross-merchant reputation — no fraud signals, no disputes, and consistent purchasing behavior over 14 months. No concerns here.`,
+    },
+  ];
+  return profiles[Math.floor(Date.now() / 10000) % profiles.length].reply;
+}
+
 // Instant local reply for clear action/command requests — no need for AI
 function instantReply(text) {
   const t = text.toLowerCase();
+  if (/consortium|network|seen.*before|other.*merchant|cross.merchant|history.*across|across.*network|other.*store|shared.*data/i.test(t))
+    return consortiumReply();
   if (/rule|auto.flag|auto.approve|auto.block|auto.escalate|threshold|condition|trigger/i.test(t))
     return `I will create this rule for you! It's been added to the Rule Engine and will apply to all future orders and returns automatically.`;
   if (/\bapprove\b/i.test(t))
