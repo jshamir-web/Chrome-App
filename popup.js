@@ -67,16 +67,22 @@ notificationsBtn.addEventListener("click", () => {
 });
 closeNotifications.addEventListener("click", () => notificationsPanel.classList.add("hidden"));
 
-// Playbook Apply buttons → confirm in chat
-document.querySelectorAll(".playbook-btn").forEach(btn => {
-  btn.addEventListener("click", () => {
-    const name = btn.closest(".playbook-item").querySelector(".playbook-name").textContent;
+// Clicking a notification item closes panel and surfaces it in chat
+document.querySelectorAll(".notif-item").forEach(item => {
+  item.addEventListener("click", () => {
+    item.classList.remove("unread");
+    item.querySelector(".notif-dot")?.classList.add("notif-dot-read");
     notificationsPanel.classList.add("hidden");
-    appendMessage("user", `Apply the "${name}" playbook`);
-    setTimeout(() => {
-      appendMessage("assistant", `Yes, I'm happy to do that for you! The "${name}" playbook has been applied to your account. It will take effect on all new orders and returns going forward.`);
-    }, 600);
+    const title = item.querySelector(".notif-item-title")?.textContent || "";
+    const desc  = item.querySelector(".notif-item-desc")?.textContent  || "";
+    appendMessage("assistant", `${title}\n\n${desc}`);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
   });
+});
+
+document.getElementById("viewAllNotif")?.addEventListener("click", () => {
+  notificationsPanel.classList.add("hidden");
+  appendMessage("assistant", "Yes, I'm happy to show you everything! All notifications have been marked as reviewed.");
 });
 
 // ── Settings ──────────────────────────────────────────────────────────────────

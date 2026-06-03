@@ -33,77 +33,81 @@
       <div class="notif-list">
 
         <!-- Monthly ROI Metrics -->
-        <div class="notif-card notif-roi">
-          <div class="notif-card-header">
-            <span class="notif-icon">📈</span>
-            <div>
-              <div class="notif-title">Monthly ROI Metrics</div>
-              <div class="notif-subtitle">June 2026 · Updated today</div>
-            </div>
-            <span class="notif-new-badge">New</span>
+        <div class="notif-item unread">
+          <div class="notif-dot"></div>
+          <div class="notif-body">
+            <div class="notif-item-title">Monthly ROI Metrics — June 2026</div>
+            <div class="notif-item-desc">$48,200 fraud prevented · 312 orders flagged · 94% accuracy · ↑18% vs May</div>
+            <div class="notif-item-time">today</div>
           </div>
-          <div class="notif-metrics-grid">
-            <div class="notif-metric">
-              <div class="notif-metric-val">$48,200</div>
-              <div class="notif-metric-label">Fraud Prevented</div>
-            </div>
-            <div class="notif-metric">
-              <div class="notif-metric-val">312</div>
-              <div class="notif-metric-label">Orders Flagged</div>
-            </div>
-            <div class="notif-metric">
-              <div class="notif-metric-val">94%</div>
-              <div class="notif-metric-label">Accuracy Rate</div>
-            </div>
-            <div class="notif-metric">
-              <div class="notif-metric-val">$154</div>
-              <div class="notif-metric-label">Avg Saved / Flag</div>
-            </div>
-          </div>
-          <div class="notif-trend">
-            <span class="trend-up">↑ 18% vs last month</span>
-            &nbsp;· Chargebacks down <span class="trend-up">23%</span>
-          </div>
+          <span class="notif-tag tag-roi">ROI</span>
         </div>
 
         <!-- Recommended Playbooks -->
-        <div class="notif-card notif-playbooks">
-          <div class="notif-card-header">
-            <span class="notif-icon">📋</span>
-            <div>
-              <div class="notif-title">Recommended Playbooks for You</div>
-              <div class="notif-subtitle">Based on your recent activity</div>
-            </div>
-            <span class="notif-new-badge">New</span>
+        <div class="notif-item unread">
+          <div class="notif-dot"></div>
+          <div class="notif-body">
+            <div class="notif-item-title">Recommended Playbooks for You</div>
+            <div class="notif-item-desc">3 new playbooks based on your activity: High Return Rate Auto-Flag, Affirm/PayPal Guard, Low-Risk Fast Lane.</div>
+            <div class="notif-item-time">today</div>
           </div>
-          <div class="playbook-list">
-            <div class="playbook-item">
-              <div class="playbook-dot" style="background:#f5a35b;"></div>
-              <div class="playbook-body">
-                <div class="playbook-name">High Return Rate — Auto-Flag</div>
-                <div class="playbook-desc">Flag customers with &gt;30% return rate for manual review before refund issuance.</div>
-              </div>
-              <button class="playbook-btn">Apply</button>
-            </div>
-            <div class="playbook-item">
-              <div class="playbook-dot" style="background:#f55b5b;"></div>
-              <div class="playbook-body">
-                <div class="playbook-name">Affirm / PayPal Chargeback Guard</div>
-                <div class="playbook-desc">Route all Affirm and PayPal returns over $75 to senior analyst before approval.</div>
-              </div>
-              <button class="playbook-btn">Apply</button>
-            </div>
-            <div class="playbook-item">
-              <div class="playbook-dot" style="background:#5bf5a3;"></div>
-              <div class="playbook-body">
-                <div class="playbook-name">Low-Risk Fast Lane</div>
-                <div class="playbook-desc">Auto-approve returns with score &lt;30 and fewer than 2 lifetime returns.</div>
-              </div>
-              <button class="playbook-btn">Apply</button>
-            </div>
-          </div>
+          <span class="notif-tag tag-playbook">Playbook</span>
         </div>
 
+        <!-- New Features -->
+        <div class="notif-item">
+          <div class="notif-dot notif-dot-read"></div>
+          <div class="notif-body">
+            <div class="notif-item-title">Wyllo Analyst — Onsite AI Chat</div>
+            <div class="notif-item-desc">Ask the Wyllo Analyst anything directly from the return page. Get approve/deny recommendations in seconds.</div>
+            <div class="notif-item-time">2 days ago</div>
+          </div>
+          <span class="notif-tag tag-feature">Feature</span>
+        </div>
+
+        <div class="notif-item">
+          <div class="notif-dot notif-dot-read"></div>
+          <div class="notif-body">
+            <div class="notif-item-title">Loop Returns Risk Integration</div>
+            <div class="notif-item-desc">Automatic risk scoring on every Loop Returns return page with customer profile, signals, and analytics.</div>
+            <div class="notif-item-time">4 days ago</div>
+          </div>
+          <span class="notif-tag tag-feature">Feature</span>
+        </div>
+
+        <div class="notif-item">
+          <div class="notif-dot notif-dot-read"></div>
+          <div class="notif-body">
+            <div class="notif-item-title">Popup ↔ Overlay Sync</div>
+            <div class="notif-item-desc">Customer data and chat from the onsite overlay now mirrors live inside the Wyllo extension widget.</div>
+            <div class="notif-item-time">4 days ago</div>
+          </div>
+          <span class="notif-tag tag-enhancement">Enhancement</span>
+        </div>
+
+        <div class="notif-item">
+          <div class="notif-dot notif-dot-read"></div>
+          <div class="notif-body">
+            <div class="notif-item-title">SPA Navigation Detection</div>
+            <div class="notif-item-desc">Risk overlays now fire on every return page navigation, not just hard page loads.</div>
+            <div class="notif-item-time">6 days ago</div>
+          </div>
+          <span class="notif-tag tag-enhancement">Enhancement</span>
+        </div>
+
+        <div class="notif-item">
+          <div class="notif-dot notif-dot-read"></div>
+          <div class="notif-body">
+            <div class="notif-item-title">Screenshot Context for AI</div>
+            <div class="notif-item-desc">Page screenshots are automatically attached to every AI analysis for richer visual context.</div>
+            <div class="notif-item-time">8 days ago</div>
+          </div>
+          <span class="notif-tag tag-enhancement">Enhancement</span>
+        </div>
+
+      </div>
+      <div class="notif-footer">
+        <button id="viewAllNotif" class="notif-view-all">View all notifications</button>
       </div>
     </div>
 
