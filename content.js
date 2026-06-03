@@ -1,28 +1,58 @@
 const OVERLAY_ID = "yofi-risk-overlay";
 
-// ── Loop Returns URL detection (works on hard load + SPA navigation) ─────────
-let _loopLastReturnId = null;
+// ── Multi-platform URL detection ──────────────────────────────────────────────
+let _lastDetectedKey = null;
 
-function checkLoopReturnsUrl() {
-  const loopMatch = location.href.match(/admin\.loopreturns\.com\/returns\/(\d+)/);
-  if (!loopMatch) {
-    // Navigated away from a return — clear overlay so it doesn't linger
-    if (_loopLastReturnId) { removeOverlay(); clearOverlayPrediction(); _loopLastReturnId = null; }
+const PLATFORM_PATTERNS = [
+  {
+    name: "loop",
+    label: "Loop Returns",
+    regex: /admin\.loopreturns\.com\/returns\/(\d+)/,
+    loadingLabel: id => `Analyzing return #${id}`,
+    generatePred: id => generateLoopReturnsPrediction(id),
+  },
+  {
+    name: "shopify",
+    label: "Shopify",
+    regex: /admin\.shopify\.com\/store\/([^/]+)\/customers\/(\d+)/,
+    loadingLabel: (_, store, cid) => `Looking up customer #${cid} on ${store}`,
+    generatePred: (_, store, cid) => generateShopifyPrediction(store, cid),
+  },
+  {
+    name: "kustomer",
+    label: "Kustomer",
+    regex: /kustomerapp\.com\/app\/customers\/([a-f0-9]+)/,
+    loadingLabel: id => `Loading Kustomer profile ${id.slice(0,8)}…`,
+    generatePred: id => generateKustomerPrediction(id),
+  },
+];
+
+function checkPlatformUrl() {
+  const url = location.href;
+
+  for (const platform of PLATFORM_PATTERNS) {
+    const m = url.match(platform.regex);
+    if (!m) continue;
+
+    const key = `${platform.name}:${m[1]}`;
+    if (key === _lastDetectedKey) return; // already showing
+    _lastDetectedKey = key;
+
+    const loadingMsg = platform.loadingLabel(...m.slice(1));
+    showLoadingOverlay(loadingMsg);
+
+    setTimeout(() => {
+      const pred = platform.generatePred(...m.slice(1));
+      pred._platform = platform.label;
+      showOverlay(pred);
+      chrome.storage.local.set({ yofi_overlay_prediction: pred });
+      setTimeout(() => captureAndAddChat(pred), 300);
+    }, 2200);
     return;
   }
-  const returnId = loopMatch[1];
-  if (returnId === _loopLastReturnId) return; // same return, already shown
-  _loopLastReturnId = returnId;
 
-  showLoadingOverlay(returnId);
-  setTimeout(() => {
-    const pred = generateLoopReturnsPrediction(returnId);
-    showOverlay(pred);
-    // Persist the full prediction so the popup can mirror it
-    chrome.storage.local.set({ yofi_overlay_prediction: pred });
-    // Give the overlay a frame to render, then add the chat panel + screenshot
-    setTimeout(() => captureAndAddChat(pred), 300);
-  }, 2200);
+  // No match — navigated away
+  if (_lastDetectedKey) { removeOverlay(); clearOverlayPrediction(); _lastDetectedKey = null; }
 }
 
 // When navigating away, clear the mirrored prediction from storage
@@ -36,14 +66,13 @@ function clearOverlayPrediction() {
     const orig = history[method].bind(history);
     history[method] = function(...args) {
       orig(...args);
-      setTimeout(checkLoopReturnsUrl, 150); // let the SPA update the URL first
+      setTimeout(checkPlatformUrl, 150);
     };
   });
-  window.addEventListener("popstate", () => setTimeout(checkLoopReturnsUrl, 150));
+  window.addEventListener("popstate", () => setTimeout(checkPlatformUrl, 150));
 })();
 
-// Run on initial page load
-checkLoopReturnsUrl();
+checkPlatformUrl();
 
 // ── Loop Returns: screenshot + AI chat panel ──────────────────────────────────
 async function captureAndAddChat(pred) {
@@ -406,7 +435,7 @@ function generateLoopReturnsPrediction(returnId) {
 }
 
 // Shows a pulsing "analyzing" overlay before the result loads
-function showLoadingOverlay(returnId) {
+function showLoadingOverlay(msg) {
   removeOverlay();
   const el = document.createElement("div");
   el.id = OVERLAY_ID;
@@ -418,12 +447,12 @@ function showLoadingOverlay(returnId) {
   el.innerHTML = `
     <div style="background:#0f1117;border:1.5px solid #4a6fa5;border-radius:14px;overflow:hidden;
       box-shadow:0 12px 48px rgba(0,0,0,.8);padding:18px 20px;">
-      <div style="font-size:10px;color:#7a7f9a;text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px;">Yofi Risk Assessment</div>
+      <div style="font-size:10px;color:#7a7f9a;text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px;">Wyllo Risk Assessment</div>
       <div style="display:flex;align-items:center;gap:12px;">
         <div style="width:36px;height:36px;border-radius:50%;border:3px solid #4a6fa5;border-top-color:transparent;
           animation:yofi-spin 0.8s linear infinite;flex-shrink:0;"></div>
         <div>
-          <div style="font-size:13px;font-weight:600;color:#e8eaf6;">Analyzing return #${returnId}</div>
+          <div style="font-size:13px;font-weight:600;color:#e8eaf6;">${msg}</div>
           <div style="font-size:11px;color:#7a7f9a;margin-top:3px;">Looking up customer profile…</div>
         </div>
       </div>
@@ -433,12 +462,163 @@ function showLoadingOverlay(returnId) {
   document.body.appendChild(el);
 }
 
+// ── Shopify customer prediction ───────────────────────────────────────────────
+function generateShopifyPrediction(store, customerId) {
+  const seed = parseInt(customerId.slice(-5), 10) % 10000;
+
+  const firstNames = ["Emma","Liam","Olivia","Noah","Ava","Ethan","Sophia","Mason","Isabella","Logan"];
+  const lastNames  = ["Carter","Brooks","Sullivan","Hayes","Nguyen","Rivera","Mitchell","Coleman","Murphy","Price"];
+  const states     = ["CA","TX","FL","NY","IL","WA","AZ","CO","GA","NC"];
+  const methods    = ["Visa","Mastercard","AmEx","PayPal","Shop Pay","Apple Pay"];
+  const tags       = [["vip","repeat_buyer"],["new_customer"],["wholesale"],["influencer"],["flagged_previously"]];
+
+  const fn   = firstNames[seed % firstNames.length];
+  const ln   = lastNames[(seed + 3) % lastNames.length];
+  const name = `${fn} ${ln}`;
+  const email = `${fn.toLowerCase()}${seed % 99}@${["gmail.com","outlook.com","yahoo.com"][seed % 3]}`;
+  const state = states[(seed + 2) % states.length];
+  const method = methods[(seed + 4) % methods.length];
+  const totalOrders = 2 + (seed % 18);
+  const totalSpend  = ((seed % 400) + 120 + totalOrders * 38).toFixed(2);
+  const chargebacks = seed % 9 === 0 ? 2 : seed % 5 === 0 ? 1 : 0;
+  const disputes    = chargebacks + (seed % 4 === 0 ? 1 : 0);
+  const rawScore    = Math.min(0.96, 0.18 + (chargebacks * 0.28) + (disputes * 0.12) + ((seed % 20) / 100));
+  const score       = parseFloat(rawScore.toFixed(2));
+  const severity    = score >= 0.75 ? "high" : score >= 0.45 ? "medium" : "low";
+  const customerTags = tags[seed % tags.length];
+
+  return {
+    id: `shopify-${customerId}`,
+    tags: ["shopify", ...customerTags],
+    customerInfo: { name, email, state, method, totalOrders, totalSpend, chargebacks, disputes, store },
+    predictions: [{
+      predictedLabel: score >= 0.75 ? "high_risk_customer" : score >= 0.45 ? "review_required" : "trusted_customer",
+      predictedScore: score,
+      severity,
+      justification: `Shopify customer ${name} on ${store}. ${totalOrders} lifetime orders totaling $${totalSpend}. ${chargebacks > 0 ? `${chargebacks} chargeback(s) filed — significant risk signal.` : "No chargebacks on record."} Payment via ${method}.`,
+      signals: [
+        {
+          title: "Chargeback History",
+          description: chargebacks > 0
+            ? `${chargebacks} chargeback(s) filed in the past 12 months. Each chargeback costs the merchant ~$25 in fees plus the disputed amount.`
+            : "No chargebacks on record. Customer has a clean payment history.",
+          category: "payment",
+          severity: chargebacks >= 2 ? "high" : chargebacks === 1 ? "medium" : "low",
+          impactScore: Math.min(0.9, chargebacks * 0.35 + 0.1),
+          value: `${chargebacks} chargebacks`,
+        },
+        {
+          title: "Dispute Rate",
+          description: `${disputes} dispute(s) opened across ${totalOrders} orders (${Math.round((disputes / totalOrders) * 100)}%). Threshold for auto-flag is 15%.`,
+          category: "behavior",
+          severity: disputes / totalOrders > 0.15 ? "high" : disputes > 0 ? "medium" : "low",
+          impactScore: Math.min(0.85, (disputes / totalOrders) * 2 + 0.1),
+          value: `${disputes}/${totalOrders}`,
+        },
+        {
+          title: "Lifetime Value",
+          description: `$${totalSpend} across ${totalOrders} orders. ${parseFloat(totalSpend) > 500 ? "High-value customer — weigh risk against LTV before blocking." : "Moderate spend — risk likely outweighs retention value."}`,
+          category: "financials",
+          severity: "low",
+          impactScore: 0.15,
+          value: `$${totalSpend}`,
+        },
+      ],
+    }],
+    segments: [
+      { name: "Shopify Customer", code: "SHP", segmentType: "platform" },
+      { name: chargebacks > 0 ? "Dispute History" : "Clean Record", code: chargebacks > 0 ? "DISP" : "CLEAN", segmentType: "risk" },
+    ],
+    analytics: [
+      { metricName: "lifetime_orders",  metricValue: totalOrders,       period: "lifetime" },
+      { metricName: "lifetime_spend",   metricValue: `$${totalSpend}`,  period: "lifetime" },
+      { metricName: "chargebacks",      metricValue: chargebacks,        period: "12 months" },
+      { metricName: "dispute_rate",     metricValue: `${Math.round((disputes/totalOrders)*100)}%`, period: "lifetime" },
+    ],
+  };
+}
+
+// ── Kustomer customer prediction ──────────────────────────────────────────────
+function generateKustomerPrediction(customerId) {
+  const seed = parseInt(customerId.replace(/[^0-9]/g, "").slice(-5) || "42731", 10) % 10000;
+
+  const firstNames = ["Jordan","Taylor","Morgan","Casey","Riley","Avery","Quinn","Reese","Peyton","Drew"];
+  const lastNames  = ["Warren","Fletcher","Hawkins","Barker","Simmons","Grant","Hodge","Stanton","Pruitt","Finley"];
+  const channels   = ["Email","Live Chat","Phone","Social","SMS"];
+  const sentiments = ["Positive","Neutral","Negative","Very Negative"];
+  const topics     = ["damaged item","order not received","refund request","wrong item sent","cancel order","billing issue"];
+
+  const fn   = firstNames[seed % firstNames.length];
+  const ln   = lastNames[(seed + 2) % lastNames.length];
+  const name = `${fn} ${ln}`;
+  const email = `${fn.toLowerCase()}.${ln.toLowerCase()}@${["gmail.com","hotmail.com","icloud.com"][seed % 3]}`;
+  const channel   = channels[seed % channels.length];
+  const sentiment = sentiments[seed % sentiments.length];
+  const topic     = topics[(seed + 1) % topics.length];
+  const cxTickets = 1 + (seed % 9);
+  const escalated = seed % 3 === 0;
+  const avgResolutionHrs = 2 + (seed % 46);
+  const rawScore  = Math.min(0.95, 0.2 + (cxTickets / 20) + (escalated ? 0.2 : 0) + (sentiment === "Very Negative" ? 0.25 : sentiment === "Negative" ? 0.12 : 0));
+  const score     = parseFloat(rawScore.toFixed(2));
+  const severity  = score >= 0.7 ? "high" : score >= 0.45 ? "medium" : "low";
+
+  return {
+    id: `kustomer-${customerId.slice(0,8)}`,
+    tags: ["kustomer", escalated ? "escalated" : "standard", sentiment.toLowerCase().replace(" ","_")],
+    customerInfo: { name, email, channel, sentiment, topic, cxTickets, escalated, avgResolutionHrs },
+    predictions: [{
+      predictedLabel: score >= 0.7 ? "high_risk_cx" : score >= 0.45 ? "needs_attention" : "satisfied_customer",
+      predictedScore: score,
+      severity,
+      justification: `Kustomer profile for ${name}. ${cxTickets} support ticket(s) — most recent topic: "${topic}" via ${channel}. Overall sentiment: ${sentiment}. ${escalated ? "Case was escalated to senior support." : "No escalation on record."} Avg resolution: ${avgResolutionHrs}hrs.`,
+      signals: [
+        {
+          title: "Support Ticket Volume",
+          description: `${cxTickets} tickets opened. Customers with 5+ tickets have a 3× higher chargeback rate than average.`,
+          category: "cx",
+          severity: cxTickets >= 6 ? "high" : cxTickets >= 3 ? "medium" : "low",
+          impactScore: Math.min(0.88, cxTickets * 0.09 + 0.1),
+          value: `${cxTickets} tickets`,
+        },
+        {
+          title: "Customer Sentiment",
+          description: `Detected sentiment: ${sentiment}. ${sentiment === "Very Negative" || sentiment === "Negative" ? "Negative sentiment correlates with higher dispute and chargeback risk." : "Positive or neutral sentiment — lower risk indicator."}`,
+          category: "cx",
+          severity: sentiment === "Very Negative" ? "high" : sentiment === "Negative" ? "medium" : "low",
+          impactScore: sentiment === "Very Negative" ? 0.8 : sentiment === "Negative" ? 0.5 : 0.15,
+          value: sentiment,
+        },
+        {
+          title: "Escalation Flag",
+          description: escalated
+            ? "Case was escalated to senior support — indicates an unresolved or contentious issue."
+            : "No escalation on record. Issue resolved at first-contact level.",
+          category: "behavior",
+          severity: escalated ? "medium" : "low",
+          impactScore: escalated ? 0.55 : 0.1,
+          value: escalated ? "Escalated" : "None",
+        },
+      ],
+    }],
+    segments: [
+      { name: "Kustomer Profile", code: "KST", segmentType: "platform" },
+      { name: escalated ? "Escalated Case" : "Standard Support", code: escalated ? "ESC" : "STD", segmentType: "cx" },
+    ],
+    analytics: [
+      { metricName: "total_tickets",      metricValue: cxTickets,            period: "lifetime" },
+      { metricName: "primary_channel",    metricValue: channel,              period: "recent" },
+      { metricName: "sentiment",          metricValue: sentiment,            period: "recent" },
+      { metricName: "avg_resolution",     metricValue: `${avgResolutionHrs}hrs`, period: "lifetime" },
+    ],
+  };
+}
+
 // ── Auto-scan on page load ────────────────────────────────────────────────────
 (function autoScan() {
   // Only run once per page; skip non-http pages
   if (!location.href.startsWith("http")) return;
-  // Loop Returns URLs are handled by checkLoopReturnsUrl above
-  if (location.href.match(/admin\.loopreturns\.com/)) return;
+  // Handled by checkPlatformUrl above
+  if (location.href.match(/admin\.loopreturns\.com|admin\.shopify\.com.*\/customers\/|kustomerapp\.com\/app\/customers\//)) return;
 
   const fields = scrapePage();
   const hasIdentifiers = fields.email || fields.orderId || fields.phone || fields.name;
