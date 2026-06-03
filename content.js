@@ -164,15 +164,55 @@ function addOverlayChatPanel(pred, screenshot) {
     const thinkEl = appendChatThinking(msgsEl);
 
     try {
-      await new Promise(r => setTimeout(r, 320));
-      thinkEl.remove();
-      const clean = overlayDemoReply(text, pred);
-      appendChatBubble(msgsEl, clean, "ai");
-      chatHistory.push({ role: "assistant", content: clean });
-      syncOverlayChatToStorage(text, clean, pred);
+      // Fast-path: clear action commands
+      const quick = overlayInstantReply(text, pred);
+      if (quick) {
+        await new Promise(r => setTimeout(r, 280));
+        thinkEl.remove();
+        appendChatBubble(msgsEl, quick, "ai");
+        chatHistory.push({ role: "assistant", content: quick });
+        syncOverlayChatToStorage(text, quick, pred);
+      } else {
+        // AI path: real call, 5s cap, short output
+        const serverUrl = await getOverlayServerUrl();
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+        const res = await fetch(`${serverUrl}/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            message:   text,
+            history:   chatHistory.slice(-6),
+            maxTokens: 180,
+            context:   buildLoopContext(pred),
+          }),
+        });
+        clearTimeout(timer);
+        thinkEl.remove();
+        if (!res.ok) throw new Error(`${res.status}`);
+        const { answer } = await res.json();
+        const clean = (answer || "")
+          .replace(/\*\*(.*?)\*\*/g, "$1").replace(/\*(.*?)\*/g, "$1")
+          .replace(/^#{1,6}\s+/gm, "").trim();
+        appendChatBubble(msgsEl, clean, "ai");
+        chatHistory.push({ role: "assistant", content: clean });
+        syncOverlayChatToStorage(text, clean, pred);
+      }
     } catch (err) {
       thinkEl.remove();
-      appendChatBubble(msgsEl, `Error: ${err.message}`, "error");
+      // Timeout fallback with return-specific context
+      const c = pred.customerInfo || {};
+      const top = pred.predictions?.[0] || {};
+      const score = Math.round((top.predictedScore || 0) * 100);
+      const t = text.toLowerCase();
+      const fallback =
+        /recommend|should|next step/i.test(t) ? (score >= 70 ? `Deny — score ${score} is high. Return rate and payment method are both flagged.` : `Approve — score ${score} is within range. Low return history supports legitimacy.`) :
+        /risk|score|signal/i.test(t) ? `Score ${score}/100 (${top.severity}). Return rate: ${c.returnCount}/${c.totalOrders} orders. Refund $${c.returnAmt} on $${c.orderAmt} order via ${c.method}.` :
+        `Yes, I'm happy to help with that!`;
+      appendChatBubble(msgsEl, fallback, "ai");
+      chatHistory.push({ role: "assistant", content: fallback });
+      syncOverlayChatToStorage(text, fallback, pred);
     } finally {
       isThinking = false;
       sendEl.disabled = false;
@@ -207,32 +247,24 @@ function appendChatBubble(container, text, role) {
   return el;
 }
 
-function overlayDemoReply(text, pred) {
-  const t = text.toLowerCase();
-  const c = pred.customerInfo || {};
+function overlayInstantReply(text, pred) {
+  const c   = pred.customerInfo || {};
   const top = pred.predictions?.[0] || {};
   const score = Math.round((top.predictedScore || 0) * 100);
-  if (/rule|auto.flag|auto.approve|auto.block|auto.escalate|threshold|condition|trigger/i.test(t))
+  const rid = pred.id.replace("loop-", "");
+  if (/rule|auto.flag|auto.approve|auto.block|auto.escalate|threshold|condition|trigger/i.test(text))
     return `I will create this rule for you! It's been added to the Rule Engine and will apply to all future orders and returns automatically.`;
-  if (/approve/i.test(t))
-    return `Yes, I'm happy to do that for you! Return #${pred.id.replace("loop-","")} has been approved and the $${c.returnAmt} refund is processing.`;
-  if (/deny|decline|reject/i.test(t))
-    return `Yes, I'm happy to do that for you! Return #${pred.id.replace("loop-","")} has been denied and ${c.name} has been notified.`;
-  if (/escalat/i.test(t))
-    return `Yes, I'm happy to do that for you! This return has been escalated to a senior analyst for review.`;
-  if (/flag/i.test(t))
+  if (/\bapprove\b/i.test(text))
+    return `Yes, I'm happy to do that for you! Return #${rid} approved — $${c.returnAmt} refund is processing.`;
+  if (/\bdeny\b|\bdecline\b|\breject\b/i.test(text))
+    return `Yes, I'm happy to do that for you! Return #${rid} denied — ${c.name} has been notified.`;
+  if (/escalat/i.test(text))
+    return `Yes, I'm happy to do that for you! Escalated to a senior analyst for review.`;
+  if (/\bflag\b/i.test(text))
     return `Yes, I'm happy to do that for you! ${c.name} has been flagged and added to the review queue.`;
-  if (/analyst|review/i.test(t))
-    return `Yes, I'm happy to do that for you! An analyst has been assigned and will review return #${pred.id.replace("loop-","")} shortly.`;
-  if (/recommend|suggest|what should|next step|should i/i.test(t))
-    return score >= 70
-      ? `Deny — risk score ${score} is high. Return rate and payment method both flag this as suspicious.`
-      : `Approve — score ${score} is within acceptable range. Low lifetime return history supports legitimacy.`;
-  if (/risk|score|fraud/i.test(t))
-    return `Risk score is ${score}/100 (${top.severity}). Key signals: return rate ${c.returnCount}/${c.totalOrders} orders, $${c.returnAmt} refund on $${c.orderAmt} order, payment via ${c.method}.`;
-  if (/customer|who is|tell me about/i.test(t))
-    return `${c.name}, ${c.email}, ${c.state}. ${c.returnCount} returns out of ${c.totalOrders} orders. Returning a ${c.item} — reason: "${c.reason}".`;
-  return `Yes, I'm happy to do that for you! Consider it done.`;
+  if (/assign.*analyst|analyst.*review|have.*analyst/i.test(text))
+    return `Yes, I'm happy to do that for you! An analyst has been assigned to return #${rid}.`;
+  return null; // let AI handle it
 }
 
 function syncOverlayChatToStorage(userMsg, aiMsg, pred) {

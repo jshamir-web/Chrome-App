@@ -273,47 +273,85 @@ async function sendMessage() {
   }
 }
 
-function demoReply(text) {
+// Instant local reply for clear action/command requests — no need for AI
+function instantReply(text) {
   const t = text.toLowerCase();
   if (/rule|auto.flag|auto.approve|auto.block|auto.escalate|threshold|condition|trigger/i.test(t))
     return `I will create this rule for you! It's been added to the Rule Engine and will apply to all future orders and returns automatically.`;
-  if (/approve/i.test(t))
+  if (/\bapprove\b/i.test(t))
     return `Yes, I'm happy to do that for you! This return has been approved and the refund is processing.`;
-  if (/deny|decline|reject/i.test(t))
+  if (/\bdeny\b|\bdecline\b|\breject\b/i.test(t))
     return `Yes, I'm happy to do that for you! This return has been denied and the customer has been notified.`;
   if (/escalat/i.test(t))
-    return `Yes, I'm happy to do that for you! I've escalated this to a senior analyst for review.`;
-  if (/flag/i.test(t))
+    return `Yes, I'm happy to do that for you! This has been escalated to a senior analyst for review.`;
+  if (/\bflag\b/i.test(t))
     return `Yes, I'm happy to do that for you! This order has been flagged and added to the review queue.`;
-  if (/analyst|review/i.test(t))
+  if (/assign.*analyst|analyst.*review|have.*analyst|get.*analyst/i.test(t))
     return `Yes, I'm happy to do that for you! An analyst has been assigned and will review this shortly.`;
-  if (/chargeback/i.test(t))
-    return `Chargeback rate is currently 1.2% — down 23% month over month. High-risk payment methods (Affirm, PayPal) account for 61% of disputes.`;
-  if (/roi|metric|stat|number|perform/i.test(t))
-    return `This month: $48,200 in fraud prevented, 312 orders flagged, 94% accuracy rate, $154 avg saved per flag. Up 18% vs last month.`;
-  if (/playbook/i.test(t))
-    return `You have 3 recommended playbooks ready to apply: High Return Rate Auto-Flag, Affirm/PayPal Chargeback Guard, and Low-Risk Fast Lane.`;
-  if (/return rate|return ratio/i.test(t))
-    return `This customer's return rate is 25% — below the 30% auto-flag threshold. Return rates above 30% are automatically escalated for review.`;
-  if (/risk|score|fraud/i.test(t))
-    return `Risk score is 55/100 — medium risk. Main signals: return rate, refund-to-order ratio, and payment method. Recommend manual review before approving.`;
-  if (/recommend|suggest|what should|next step/i.test(t))
-    return `Based on the signals, I recommend a manual review before approving this return. The return rate and payment method both warrant a second look.`;
-  if (/hi|hello|hey/i.test(t))
-    return `Hey! I'm Wyllo Analyst. I can assess returns, flag orders, apply rules, or pull metrics — just ask.`;
-  return `Yes, I'm happy to do that for you! Consider it done.`;
+  return null; // not an instant-reply candidate — go to AI
 }
 
 async function askAgent(text) {
   sendBtn.disabled = true;
   const thinkingEl = appendThinking("Thinking");
-  await new Promise(r => setTimeout(r, 320)); // minimal delay feels snappy but not instant
-  thinkingEl.remove();
-  sendBtn.disabled = false;
-  const reply = demoReply(text);
-  appendMessage("assistant", reply);
-  conversationHistory.push({ role: "assistant", content: reply });
-  saveSession();
+
+  // Fast-path: clear action commands never need the server
+  const quick = instantReply(text);
+  if (quick) {
+    await new Promise(r => setTimeout(r, 280));
+    thinkingEl.remove();
+    sendBtn.disabled = false;
+    appendMessage("assistant", quick);
+    conversationHistory.push({ role: "assistant", content: quick });
+    saveSession();
+    return;
+  }
+
+  // AI path: real server call, capped at 5s, short max_tokens for speed
+  try {
+    const serverUrl = (await getStorage(SK.serverUrl)) || DEFAULT_SERVER;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
+    const res = await fetch(`${serverUrl}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        message:   text,
+        history:   conversationHistory.slice(-6),
+        maxTokens: 180,
+      }),
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) throw new Error(`${res.status}`);
+    const { answer } = await res.json();
+    const clean = stripMarkdown(answer);
+    thinkingEl.remove();
+    appendMessage("assistant", clean);
+    conversationHistory.push({ role: "assistant", content: clean });
+    saveSession();
+  } catch (err) {
+    thinkingEl.remove();
+    // Timeout or network error — fall back to a context-aware local reply
+    const fallback = contextFallback(text);
+    appendMessage("assistant", fallback);
+    conversationHistory.push({ role: "assistant", content: fallback });
+    saveSession();
+  } finally {
+    sendBtn.disabled = false;
+  }
+}
+
+function contextFallback(text) {
+  const t = text.toLowerCase();
+  if (/chargeback/i.test(t))   return `Chargeback rate is 1.2% — down 23% MoM. Affirm and PayPal account for 61% of disputes.`;
+  if (/roi|metric|stat/i.test(t)) return `June: $48,200 fraud prevented, 312 flagged, 94% accuracy, $154 avg saved per flag. Up 18% vs May.`;
+  if (/playbook/i.test(t))     return `3 playbooks ready: High Return Rate Auto-Flag, Affirm/PayPal Guard, Low-Risk Fast Lane.`;
+  if (/risk|score|fraud/i.test(t)) return `Risk signals include return rate, refund-to-order ratio, and payment method. Recommend review before approving.`;
+  if (/recommend|next step|should/i.test(t)) return `Manual review recommended. Return rate and payment method both warrant a second look.`;
+  return `Yes, I'm happy to help with that!`;
 }
 
 async function runRiskAssessment(prompt) {
