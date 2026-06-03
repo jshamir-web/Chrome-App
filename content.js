@@ -7,7 +7,7 @@ function checkLoopReturnsUrl() {
   const loopMatch = location.href.match(/admin\.loopreturns\.com\/returns\/(\d+)/);
   if (!loopMatch) {
     // Navigated away from a return — clear overlay so it doesn't linger
-    if (_loopLastReturnId) { removeOverlay(); _loopLastReturnId = null; }
+    if (_loopLastReturnId) { removeOverlay(); clearOverlayPrediction(); _loopLastReturnId = null; }
     return;
   }
   const returnId = loopMatch[1];
@@ -18,9 +18,16 @@ function checkLoopReturnsUrl() {
   setTimeout(() => {
     const pred = generateLoopReturnsPrediction(returnId);
     showOverlay(pred);
+    // Persist the full prediction so the popup can mirror it
+    chrome.storage.local.set({ yofi_overlay_prediction: pred });
     // Give the overlay a frame to render, then add the chat panel + screenshot
     setTimeout(() => captureAndAddChat(pred), 300);
   }, 2200);
+}
+
+// When navigating away, clear the mirrored prediction from storage
+function clearOverlayPrediction() {
+  chrome.storage.local.remove("yofi_overlay_prediction");
 }
 
 // Patch history API so SPA pushState / replaceState trigger the check

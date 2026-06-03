@@ -508,21 +508,83 @@ function getStorageMulti(keys) {
 let _overlayMirrorSeenCount = 0;
 
 function initOverlayChatMirror() {
-  // Load any messages already written before popup opened
-  chrome.storage.local.get(["yofi_overlay_chat"], d => {
+  // Load whatever the overlay has already written before the popup opened
+  chrome.storage.local.get(["yofi_overlay_prediction", "yofi_overlay_chat"], d => {
+    if (d.yofi_overlay_prediction) renderOverlayPrediction(d.yofi_overlay_prediction);
     const msgs = d.yofi_overlay_chat || [];
     if (msgs.length) renderOverlayMsgs(msgs, 0);
     _overlayMirrorSeenCount = msgs.length;
   });
 
-  // Live-update as new overlay chat messages come in
+  // Live-update as the overlay writes new data
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local" || !changes.yofi_overlay_chat) return;
-    const msgs = changes.yofi_overlay_chat.newValue || [];
-    if (msgs.length <= _overlayMirrorSeenCount) return;
-    renderOverlayMsgs(msgs, _overlayMirrorSeenCount);
-    _overlayMirrorSeenCount = msgs.length;
+    if (area !== "local") return;
+
+    if (changes.yofi_overlay_prediction) {
+      const pred = changes.yofi_overlay_prediction.newValue;
+      if (pred) renderOverlayPrediction(pred);
+    }
+
+    if (changes.yofi_overlay_chat) {
+      const msgs = changes.yofi_overlay_chat.newValue || [];
+      if (msgs.length <= _overlayMirrorSeenCount) return;
+      renderOverlayMsgs(msgs, _overlayMirrorSeenCount);
+      _overlayMirrorSeenCount = msgs.length;
+    }
   });
+}
+
+function renderOverlayPrediction(pred) {
+  // Score banner
+  const top = pred.predictions?.[0];
+  if (top) updateScoreBanner(Math.round((top.predictedScore || 0) * 100), top.severity);
+
+  // Divider
+  const divider = document.createElement("div");
+  divider.style.cssText = `
+    display:flex;align-items:center;gap:8px;margin:10px 0 6px;
+    font-size:10px;color:#4a6fa5;text-transform:uppercase;letter-spacing:.5px;`;
+  divider.innerHTML = `
+    <div style="flex:1;height:1px;background:#2e3248;"></div>
+    🔗 Live from onsite overlay
+    <div style="flex:1;height:1px;background:#2e3248;"></div>`;
+  chatMessages.appendChild(divider);
+
+  // Customer info card (if present)
+  const c = pred.customerInfo;
+  if (c) {
+    const infoWrap = document.createElement("div");
+    infoWrap.className = "msg assistant";
+    const infoCard = document.createElement("div");
+    infoCard.className = "prediction-card";
+    infoCard.style.cssText = "border-color:#4a6fa544;padding:10px 12px;";
+    const rows = [
+      ["Name",     c.name],
+      ["Email",    c.email],
+      ["State",    c.state],
+      ["Item",     c.item],
+      ["Reason",   c.reason],
+      ["Payment",  c.method],
+      ["Order",    `$${c.orderAmt}`],
+      ["Refund",   `$${c.returnAmt}`],
+      ["Returns",  `${c.returnCount} of ${c.totalOrders} orders`],
+    ];
+    infoCard.innerHTML = `
+      <div class="pred-section-title" style="margin-bottom:8px;">📋 Customer Profile</div>
+      <table style="width:100%;border-collapse:collapse;">
+        ${rows.map(([k,v]) => `
+          <tr>
+            <td style="font-size:10px;color:var(--text-muted);padding:3px 0;width:64px;">${k}</td>
+            <td style="font-size:11px;color:var(--text);padding:3px 0;word-break:break-all;">${v}</td>
+          </tr>`).join("")}
+      </table>`;
+    infoWrap.appendChild(infoCard);
+    chatMessages.appendChild(infoWrap);
+  }
+
+  // Full prediction card (score, signals, segments, analytics)
+  renderPredictionCard(pred);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
 function renderOverlayMsgs(msgs, fromIndex) {
