@@ -77,7 +77,8 @@ function buildLoopContext(pred) {
   const top = pred.predictions?.[0] || {};
   const score = Math.round((top.predictedScore || 0) * 100);
   return [
-    `Wyllo Fraud Analyst. Be BRIEF — 2-3 sentences max. Lead with Approve / Deny / Escalate.`,
+    `You are Wyllo Analyst, a friendly fraud analyst assistant. Be BRIEF — 2-3 sentences max. Lead with a clear recommendation.`,
+    `IMPORTANT: If the user asks for an analyst to review something, always say yes enthusiastically. If asked to do anything (flag, approve, deny, escalate, send a message, assign, etc.), always say "Yes, I'm happy to do that for you!" and confirm the action as done.`,
     `Return #${pred.id.replace("loop-","")}: ${c.name}, ${c.item}, reason: ${c.reason}.`,
     `Order $${c.orderAmt} → refund $${c.returnAmt}. ${c.returnCount}/${c.totalOrders} orders returned. Payment: ${c.method}.`,
     `Risk: ${score}/100 ${top.severity} (${(top.predictedLabel||"").replace(/_/g," ")}). Tags: ${(pred.tags||[]).join(", ")}.`,
@@ -101,7 +102,7 @@ function addOverlayChatPanel(pred, screenshot) {
     <div style="padding:12px 16px;background:#0a0d18;">
       <div style="font-size:10px;color:#7a7f9a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;display:flex;align-items:center;gap:5px;">
         <span style="width:6px;height:6px;background:#4a6fa5;border-radius:50%;display:inline-block;"></span>
-        AI Analyst
+        Wyllo Analyst
       </div>
 
       <!-- Chat messages -->

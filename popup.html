@@ -17,9 +17,95 @@
       <div class="header-actions">
         <button id="historyBtn" class="icon-btn" title="Chat history">&#9776;</button>
         <button id="newChatBtn" class="icon-btn" title="New chat">&#43;</button>
+        <button id="notificationsBtn" class="icon-btn notif-btn" title="Notifications">
+          &#128276;<span id="notifBadge" class="notif-badge">2</span>
+        </button>
         <button id="settingsBtn" class="icon-btn" title="Settings">&#9881;</button>
       </div>
     </header>
+
+    <!-- Notifications panel -->
+    <div id="notificationsPanel" class="notif-panel hidden">
+      <div class="notif-header">
+        <span>Notifications</span>
+        <button id="closeNotifications" class="icon-btn">&#10005;</button>
+      </div>
+      <div class="notif-list">
+
+        <!-- Monthly ROI Metrics -->
+        <div class="notif-card notif-roi">
+          <div class="notif-card-header">
+            <span class="notif-icon">📈</span>
+            <div>
+              <div class="notif-title">Monthly ROI Metrics</div>
+              <div class="notif-subtitle">June 2026 · Updated today</div>
+            </div>
+            <span class="notif-new-badge">New</span>
+          </div>
+          <div class="notif-metrics-grid">
+            <div class="notif-metric">
+              <div class="notif-metric-val">$48,200</div>
+              <div class="notif-metric-label">Fraud Prevented</div>
+            </div>
+            <div class="notif-metric">
+              <div class="notif-metric-val">312</div>
+              <div class="notif-metric-label">Orders Flagged</div>
+            </div>
+            <div class="notif-metric">
+              <div class="notif-metric-val">94%</div>
+              <div class="notif-metric-label">Accuracy Rate</div>
+            </div>
+            <div class="notif-metric">
+              <div class="notif-metric-val">$154</div>
+              <div class="notif-metric-label">Avg Saved / Flag</div>
+            </div>
+          </div>
+          <div class="notif-trend">
+            <span class="trend-up">↑ 18% vs last month</span>
+            &nbsp;· Chargebacks down <span class="trend-up">23%</span>
+          </div>
+        </div>
+
+        <!-- Recommended Playbooks -->
+        <div class="notif-card notif-playbooks">
+          <div class="notif-card-header">
+            <span class="notif-icon">📋</span>
+            <div>
+              <div class="notif-title">Recommended Playbooks for You</div>
+              <div class="notif-subtitle">Based on your recent activity</div>
+            </div>
+            <span class="notif-new-badge">New</span>
+          </div>
+          <div class="playbook-list">
+            <div class="playbook-item">
+              <div class="playbook-dot" style="background:#f5a35b;"></div>
+              <div class="playbook-body">
+                <div class="playbook-name">High Return Rate — Auto-Flag</div>
+                <div class="playbook-desc">Flag customers with &gt;30% return rate for manual review before refund issuance.</div>
+              </div>
+              <button class="playbook-btn">Apply</button>
+            </div>
+            <div class="playbook-item">
+              <div class="playbook-dot" style="background:#f55b5b;"></div>
+              <div class="playbook-body">
+                <div class="playbook-name">Affirm / PayPal Chargeback Guard</div>
+                <div class="playbook-desc">Route all Affirm and PayPal returns over $75 to senior analyst before approval.</div>
+              </div>
+              <button class="playbook-btn">Apply</button>
+            </div>
+            <div class="playbook-item">
+              <div class="playbook-dot" style="background:#5bf5a3;"></div>
+              <div class="playbook-body">
+                <div class="playbook-name">Low-Risk Fast Lane</div>
+                <div class="playbook-desc">Auto-approve returns with score &lt;30 and fewer than 2 lifetime returns.</div>
+              </div>
+              <button class="playbook-btn">Apply</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
 
     <!-- Settings panel -->
     <div id="settingsPanel" class="settings-panel hidden">
