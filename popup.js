@@ -51,6 +51,7 @@ const sendBtn         = document.getElementById("sendBtn");
 })();
 
 startNewSession();
+initOverlayChatMirror();
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 settingsBtn.addEventListener("click", () => settingsPanel.classList.toggle("hidden"));
@@ -501,4 +502,62 @@ function getStorage(key) {
 }
 function getStorageMulti(keys) {
   return new Promise((resolve) => chrome.storage.local.get(keys, resolve));
+}
+
+// ── Overlay chat mirror ───────────────────────────────────────────────────────
+let _overlayMirrorSeenCount = 0;
+
+function initOverlayChatMirror() {
+  // Load any messages already written before popup opened
+  chrome.storage.local.get(["yofi_overlay_chat"], d => {
+    const msgs = d.yofi_overlay_chat || [];
+    if (msgs.length) renderOverlayMsgs(msgs, 0);
+    _overlayMirrorSeenCount = msgs.length;
+  });
+
+  // Live-update as new overlay chat messages come in
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !changes.yofi_overlay_chat) return;
+    const msgs = changes.yofi_overlay_chat.newValue || [];
+    if (msgs.length <= _overlayMirrorSeenCount) return;
+    renderOverlayMsgs(msgs, _overlayMirrorSeenCount);
+    _overlayMirrorSeenCount = msgs.length;
+  });
+}
+
+function renderOverlayMsgs(msgs, fromIndex) {
+  if (fromIndex === 0) {
+    // First batch — show a divider so the analyst knows these are from the onsite overlay
+    const divider = document.createElement("div");
+    divider.style.cssText = `
+      display:flex;align-items:center;gap:8px;margin:10px 0 4px;
+      font-size:10px;color:#4a6fa5;text-transform:uppercase;letter-spacing:.5px;`;
+    divider.innerHTML = `
+      <div style="flex:1;height:1px;background:#2e3248;"></div>
+      📋 Onsite overlay chat
+      <div style="flex:1;height:1px;background:#2e3248;"></div>`;
+    chatMessages.appendChild(divider);
+  }
+
+  const newMsgs = msgs.slice(fromIndex);
+  for (const m of newMsgs) {
+    const wrap   = document.createElement("div");
+    wrap.className = `msg ${m.role === "user" ? "user" : "assistant"}`;
+
+    const bubble = document.createElement("div");
+    bubble.className = "msg-bubble";
+    bubble.style.cssText = m.role === "user"
+      ? "border-left:2px solid #4a6fa5;"
+      : "border-left:2px solid #2e3248;opacity:0.9;";
+    bubble.textContent = m.content;
+
+    const meta = document.createElement("div");
+    meta.className = "msg-time";
+    meta.textContent = `${m.returnId ? `Return #${m.returnId} · ` : ""}${new Date(m.ts).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}`;
+
+    wrap.appendChild(bubble);
+    wrap.appendChild(meta);
+    chatMessages.appendChild(wrap);
+  }
+  chatMessages.scrollTop = chatMessages.scrollHeight;
 }

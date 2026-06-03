@@ -70,21 +70,11 @@ function buildLoopContext(pred) {
   const top = pred.predictions?.[0] || {};
   const score = Math.round((top.predictedScore || 0) * 100);
   return [
-    `You are the Wyllo AI Fraud Analyst. You have been given the following Loop Returns case and must help the analyst make a decision.`,
-    ``,
-    `Return ID: #${pred.id.replace("loop-", "")}`,
-    `Customer: ${c.name} (${c.email}), ${c.state}`,
-    `Item returned: ${c.item}`,
-    `Reason claimed: ${c.reason}`,
-    `Order value: $${c.orderAmt} → Refund requested: $${c.returnAmt}`,
-    `Return history: ${c.returnCount} returns out of ${c.totalOrders} orders (${Math.round((c.returnCount/c.totalOrders)*100)}% return rate)`,
-    `Payment method: ${c.method}`,
-    `Risk score: ${score}/100 — ${top.severity} risk (${(top.predictedLabel||"").replace(/_/g," ")})`,
-    `Tags: ${(pred.tags||[]).join(", ")}`,
-    `Signals: ${(top.signals||[]).map(s => `${s.title} (${s.severity}): ${s.description}`).join(" | ")}`,
-    ``,
-    `Be concise and direct. Recommend approve, deny, or escalate. Explain your reasoning clearly.`,
-  ].join("\n");
+    `Wyllo Fraud Analyst. Be BRIEF — 2-3 sentences max. Lead with Approve / Deny / Escalate.`,
+    `Return #${pred.id.replace("loop-","")}: ${c.name}, ${c.item}, reason: ${c.reason}.`,
+    `Order $${c.orderAmt} → refund $${c.returnAmt}. ${c.returnCount}/${c.totalOrders} orders returned. Payment: ${c.method}.`,
+    `Risk: ${score}/100 ${top.severity} (${(top.predictedLabel||"").replace(/_/g," ")}). Tags: ${(pred.tags||[]).join(", ")}.`,
+  ].join(" ");
 }
 
 function addOverlayChatPanel(pred, screenshot) {
@@ -188,6 +178,9 @@ function addOverlayChatPanel(pred, screenshot) {
         .trim();
       appendChatBubble(msgsEl, clean, "ai");
       chatHistory.push({ role: "assistant", content: clean });
+
+      // Mirror exchange into storage so the popup can reflect it live
+      syncOverlayChatToStorage(text, clean, pred);
     } catch (err) {
       thinkEl.remove();
       appendChatBubble(msgsEl, `Error: ${err.message}`, "error");
@@ -223,6 +216,20 @@ function appendChatBubble(container, text, role) {
   container.appendChild(el);
   container.scrollTop = container.scrollHeight;
   return el;
+}
+
+function syncOverlayChatToStorage(userMsg, aiMsg, pred) {
+  const returnId = pred.id.replace("loop-", "");
+  const ts = Date.now();
+  chrome.storage.local.get(["yofi_overlay_chat"], d => {
+    const existing = d.yofi_overlay_chat || [];
+    existing.push(
+      { role: "user",      content: userMsg, returnId, ts },
+      { role: "assistant", content: aiMsg,   returnId, ts: ts + 1 }
+    );
+    // Keep last 40 messages
+    chrome.storage.local.set({ yofi_overlay_chat: existing.slice(-40) });
+  });
 }
 
 function appendChatThinking(container) {
