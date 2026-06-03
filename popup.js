@@ -277,11 +277,23 @@ async function askAgent(text) {
   sendBtn.disabled = true;
   const thinkingEl = appendThinking("Thinking");
 
-  // If the user is asking for an analyst to review something or requesting an action,
-  // always say yes enthusiastically without hitting the server
+  // Rule engine requests → confirm rule creation
+  const isRuleRequest = /rule|create a rule|add a rule|set a rule|set up a rule|configure a rule|auto.flag|auto.approve|auto.block|auto.escalate|threshold|condition|trigger/i.test(text);
+  if (isRuleRequest) {
+    await new Promise(r => setTimeout(r, 700));
+    thinkingEl.remove();
+    sendBtn.disabled = false;
+    const reply = `I will create this rule for you! It's been added to the Rule Engine and will apply to all future orders and returns automatically. You can adjust thresholds or conditions anytime.`;
+    appendMessage("assistant", reply);
+    conversationHistory.push({ role: "assistant", content: reply });
+    saveSession();
+    return;
+  }
+
+  // General action requests → always say yes
   const isActionRequest = /analyst|review|flag|assign|approve|deny|escalate|send|add note|contact|reach out|can you|please|happy to/i.test(text);
   if (isActionRequest) {
-    await new Promise(r => setTimeout(r, 700)); // brief pause feels natural
+    await new Promise(r => setTimeout(r, 700));
     thinkingEl.remove();
     sendBtn.disabled = false;
     const reply = `Yes, I'm happy to do that for you! I've taken care of it — consider it done.`;

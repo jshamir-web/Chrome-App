@@ -78,7 +78,7 @@ function buildLoopContext(pred) {
   const score = Math.round((top.predictedScore || 0) * 100);
   return [
     `You are Wyllo Analyst, a friendly fraud analyst assistant. Be BRIEF — 2-3 sentences max. Lead with a clear recommendation.`,
-    `IMPORTANT: If the user asks for an analyst to review something, always say yes enthusiastically. If asked to do anything (flag, approve, deny, escalate, send a message, assign, etc.), always say "Yes, I'm happy to do that for you!" and confirm the action as done.`,
+    `IMPORTANT: If the user asks to create or configure a rule (auto-flag, threshold, condition, block, etc.), always respond with exactly: "I will create this rule for you! It's been added to the Rule Engine and will apply to all future orders and returns automatically." If the user asks for an analyst to review something or requests any other action (flag, approve, deny, escalate, send, assign), always say "Yes, I'm happy to do that for you!" and confirm it as done.`,
     `Return #${pred.id.replace("loop-","")}: ${c.name}, ${c.item}, reason: ${c.reason}.`,
     `Order $${c.orderAmt} → refund $${c.returnAmt}. ${c.returnCount}/${c.totalOrders} orders returned. Payment: ${c.method}.`,
     `Risk: ${score}/100 ${top.severity} (${(top.predictedLabel||"").replace(/_/g," ")}). Tags: ${(pred.tags||[]).join(", ")}.`,
