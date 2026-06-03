@@ -230,15 +230,7 @@ function addOverlayChatPanel(pred, screenshot) {
       }
     } catch (err) {
       thinkEl.remove();
-      // Timeout fallback with return-specific context
-      const c = pred.customerInfo || {};
-      const top = pred.predictions?.[0] || {};
-      const score = Math.round((top.predictedScore || 0) * 100);
-      const t = text.toLowerCase();
-      const fallback =
-        /recommend|should|next step/i.test(t) ? (score >= 70 ? `Deny — score ${score} is high. Return rate and payment method are both flagged.` : `Approve — score ${score} is within range. Low return history supports legitimacy.`) :
-        /risk|score|signal/i.test(t) ? `Score ${score}/100 (${top.severity}). Return rate: ${c.returnCount}/${c.totalOrders} orders. Refund $${c.returnAmt} on $${c.orderAmt} order via ${c.method}.` :
-        `Yes, I'm happy to help with that!`;
+      const fallback = customerVerdict(pred);
       appendChatBubble(msgsEl, fallback, "ai");
       chatHistory.push({ role: "assistant", content: fallback });
       syncOverlayChatToStorage(text, fallback, pred);
@@ -274,6 +266,60 @@ function appendChatBubble(container, text, role) {
   container.appendChild(el);
   container.scrollTop = container.scrollHeight;
   return el;
+}
+
+// Rich customer verdict — used as catch-all when no specific intent matched
+function customerVerdict(pred) {
+  const c   = pred.customerInfo || {};
+  const top = pred.predictions?.[0] || {};
+  const score = Math.round((top.predictedScore || 0) * 100);
+  const sev = top.severity || "low";
+  const signals = (top.signals || []);
+  const topSignal = signals[0];
+
+  // ── Loop Returns verdict ──────────────────────────────────────────────────
+  if (pred.id?.startsWith("loop-")) {
+    const returnRate = Math.round((c.returnCount / c.totalOrders) * 100);
+    if (score >= 70) {
+      return `${c.name} is a high-risk customer. They've returned ${c.returnCount} of ${c.totalOrders} orders (${returnRate}%) — well above the 30% threshold — and are requesting a $${c.returnAmt} refund on a $${c.orderAmt} order via ${c.method}, which has elevated chargeback exposure. The "${c.reason}" reason is also a common cover for wardrobing. Recommend deny or escalate.`;
+    } else if (score >= 45) {
+      return `${c.name} shows some risk signals worth reviewing. Return rate is ${returnRate}% and the refund-to-order ratio ($${c.returnAmt}/$${c.orderAmt}) is on the higher side. Payment via ${c.method} adds mild risk. Not an immediate deny, but manual review before approving is advised.`;
+    } else {
+      return `${c.name} looks like a legitimate return. Only ${c.returnCount} return(s) out of ${c.totalOrders} orders (${returnRate}%), the refund amount is proportionate, and no strong fraud signals were detected. Safe to approve.`;
+    }
+  }
+
+  // ── Shopify verdict ───────────────────────────────────────────────────────
+  if (pred.id?.startsWith("shopify-")) {
+    const cb = c.chargebacks || 0;
+    const ltv = parseFloat(c.totalSpend || 0);
+    if (score >= 70) {
+      return `${c.name} is a high-risk Shopify customer. ${cb} chargeback(s) filed in the past 12 months — each costing the merchant ~$25 in fees on top of the disputed amount. With only $${c.totalSpend} in lifetime spend across ${c.totalOrders} orders, the risk outweighs the retention value. Recommend blocking and flagging for future orders on ${c.store}.`;
+    } else if (score >= 45) {
+      return `${c.name} has a mixed history on ${c.store}. ${cb > 0 ? `${cb} chargeback(s) on record — a yellow flag.` : "No chargebacks, but dispute rate is above baseline."} $${c.totalSpend} lifetime spend over ${c.totalOrders} orders. Worth monitoring before extending any high-value orders.`;
+    } else {
+      return `${c.name} is a good customer on ${c.store}. $${c.totalSpend} in lifetime spend, ${c.totalOrders} orders, no chargebacks, clean payment history via ${c.method}. High-value and trustworthy — no action needed.`;
+    }
+  }
+
+  // ── Kustomer verdict ──────────────────────────────────────────────────────
+  if (pred.id?.startsWith("kustomer-")) {
+    const tickets = c.cxTickets || 0;
+    const sent = c.sentiment || "Neutral";
+    if (score >= 70) {
+      return `${c.name} is a high-risk support profile. ${tickets} ticket(s) with ${sent.toLowerCase()} sentiment${c.escalated ? " and a case that required escalation" : ""}. The most recent contact was about "${c.topic}" — a pattern that frequently precedes chargebacks or forced refunds. Recommend proactive outreach before they file a dispute.`;
+    } else if (score >= 45) {
+      return `${c.name} has an elevated support footprint — ${tickets} ticket(s), ${sent.toLowerCase()} sentiment, avg resolution ${c.avgResolutionHrs}hrs. Not critical, but sentiment trends negative. Worth a proactive check-in to prevent escalation.`;
+    } else {
+      return `${c.name} is a satisfied customer. ${tickets} ticket(s) with ${sent.toLowerCase()} sentiment and a resolution time of ${c.avgResolutionHrs}hrs — well within normal range. No fraud or escalation signals. Good standing.`;
+    }
+  }
+
+  // ── Generic fallback ──────────────────────────────────────────────────────
+  const label = (top.predictedLabel || "").replace(/_/g, " ");
+  if (score >= 70) return `Risk score ${score}/100 (${sev}). This customer shows significant fraud signals — ${topSignal ? topSignal.description : "multiple risk indicators flagged"}. Recommend deny or escalate.`;
+  if (score >= 45) return `Risk score ${score}/100 (${sev}). Some signals worth reviewing — ${topSignal ? topSignal.description : "moderate risk indicators present"}. Manual review advised before approving.`;
+  return `Risk score ${score}/100 (${sev}). Low risk — ${label || "no significant fraud signals detected"}. Safe to proceed.`;
 }
 
 function overlayConsortiumReply(pred) {

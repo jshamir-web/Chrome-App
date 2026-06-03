@@ -376,12 +376,13 @@ async function askAgent(text) {
 
 function contextFallback(text) {
   const t = text.toLowerCase();
-  if (/chargeback/i.test(t))   return `Chargeback rate is 1.2% — down 23% MoM. Affirm and PayPal account for 61% of disputes.`;
-  if (/roi|metric|stat/i.test(t)) return `June: $48,200 fraud prevented, 312 flagged, 94% accuracy, $154 avg saved per flag. Up 18% vs May.`;
-  if (/playbook/i.test(t))     return `3 playbooks ready: High Return Rate Auto-Flag, Affirm/PayPal Guard, Low-Risk Fast Lane.`;
-  if (/risk|score|fraud/i.test(t)) return `Risk signals include return rate, refund-to-order ratio, and payment method. Recommend review before approving.`;
-  if (/recommend|next step|should/i.test(t)) return `Manual review recommended. Return rate and payment method both warrant a second look.`;
-  return `Yes, I'm happy to help with that!`;
+  if (/chargeback/i.test(t))      return `Chargeback rate is 1.2% — down 23% MoM. Affirm and PayPal account for 61% of disputes. Customers with 2+ chargebacks are auto-flagged for permanent review.`;
+  if (/roi|metric|stat/i.test(t)) return `June: $48,200 fraud prevented, 312 orders flagged, 94% accuracy, $154 avg saved per flag. Up 18% vs May. Chargeback rate down 23%.`;
+  if (/playbook/i.test(t))        return `3 playbooks ready: High Return Rate Auto-Flag (>30% return rate), Affirm/PayPal Chargeback Guard (disputes over $75), and Low-Risk Fast Lane (score <30, <2 lifetime returns).`;
+  if (/good customer|trustworthy|safe|legit/i.test(t)) return `A good customer typically has fewer than 2 returns per 10 orders, no chargebacks, consistent purchase history, and positive or neutral sentiment across support interactions. Low dispute rate and long account age are also strong positive signals.`;
+  if (/bad customer|fraud|risk|suspicious/i.test(t))   return `High-risk customers typically show 3+ returns in 6 months, at least one chargeback, use of high-risk payment methods like Affirm or PayPal, negative sentiment in support, and patterns like "item not as described" followed by disputes. Multiple signals together significantly increase fraud probability.`;
+  if (/recommend|next step|should/i.test(t)) return `For medium-risk customers: manual review before approving. Check return history, payment method, and whether the reason matches the item. For high-risk: deny and flag. For low-risk: approve directly.`;
+  return `Based on typical risk signals: return rate, chargeback history, payment method, and support sentiment are the strongest predictors. High scores on 2+ of these warrant a deny or escalation.`;
 }
 
 async function runRiskAssessment(prompt) {
