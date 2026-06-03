@@ -1,20 +1,37 @@
 const OVERLAY_ID = "yofi-risk-overlay";
 
-// ── Loop Returns URL detection ────────────────────────────────────────────────
-(function loopReturnsScan() {
+// ── Loop Returns URL detection (works on hard load + SPA navigation) ─────────
+let _loopLastReturnId = null;
+
+function checkLoopReturnsUrl() {
   const loopMatch = location.href.match(/admin\.loopreturns\.com\/returns\/(\d+)/);
-  if (!loopMatch) return;
-
+  if (!loopMatch) {
+    // Navigated away from a return — clear overlay so it doesn't linger
+    if (_loopLastReturnId) { removeOverlay(); _loopLastReturnId = null; }
+    return;
+  }
   const returnId = loopMatch[1];
+  if (returnId === _loopLastReturnId) return; // same return, already shown
+  _loopLastReturnId = returnId;
 
-  // Step 1: show "analyzing" loading overlay
   showLoadingOverlay(returnId);
+  setTimeout(() => showOverlay(generateLoopReturnsPrediction(returnId)), 2200);
+}
 
-  // Step 2: after a short pause, swap in the full mock risk result
-  setTimeout(() => {
-    showOverlay(generateLoopReturnsPrediction(returnId));
-  }, 2200);
+// Patch history API so SPA pushState / replaceState trigger the check
+(function patchHistory() {
+  ["pushState", "replaceState"].forEach(method => {
+    const orig = history[method].bind(history);
+    history[method] = function(...args) {
+      orig(...args);
+      setTimeout(checkLoopReturnsUrl, 150); // let the SPA update the URL first
+    };
+  });
+  window.addEventListener("popstate", () => setTimeout(checkLoopReturnsUrl, 150));
 })();
+
+// Run on initial page load
+checkLoopReturnsUrl();
 
 // Generate deterministic mock customer + risk data from the return ID
 function generateLoopReturnsPrediction(returnId) {
@@ -132,8 +149,8 @@ function showLoadingOverlay(returnId) {
 (function autoScan() {
   // Only run once per page; skip non-http pages
   if (!location.href.startsWith("http")) return;
-  // Loop Returns URLs are handled by the loopReturnsScan above
-  if (location.href.match(/admin\.loopreturns\.com\/returns\/\d+/)) return;
+  // Loop Returns URLs are handled by checkLoopReturnsUrl above
+  if (location.href.match(/admin\.loopreturns\.com/)) return;
 
   const fields = scrapePage();
   const hasIdentifiers = fields.email || fields.orderId || fields.phone || fields.name;
