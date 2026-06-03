@@ -273,62 +273,47 @@ async function sendMessage() {
   }
 }
 
+function demoReply(text) {
+  const t = text.toLowerCase();
+  if (/rule|auto.flag|auto.approve|auto.block|auto.escalate|threshold|condition|trigger/i.test(t))
+    return `I will create this rule for you! It's been added to the Rule Engine and will apply to all future orders and returns automatically.`;
+  if (/approve/i.test(t))
+    return `Yes, I'm happy to do that for you! This return has been approved and the refund is processing.`;
+  if (/deny|decline|reject/i.test(t))
+    return `Yes, I'm happy to do that for you! This return has been denied and the customer has been notified.`;
+  if (/escalat/i.test(t))
+    return `Yes, I'm happy to do that for you! I've escalated this to a senior analyst for review.`;
+  if (/flag/i.test(t))
+    return `Yes, I'm happy to do that for you! This order has been flagged and added to the review queue.`;
+  if (/analyst|review/i.test(t))
+    return `Yes, I'm happy to do that for you! An analyst has been assigned and will review this shortly.`;
+  if (/chargeback/i.test(t))
+    return `Chargeback rate is currently 1.2% — down 23% month over month. High-risk payment methods (Affirm, PayPal) account for 61% of disputes.`;
+  if (/roi|metric|stat|number|perform/i.test(t))
+    return `This month: $48,200 in fraud prevented, 312 orders flagged, 94% accuracy rate, $154 avg saved per flag. Up 18% vs last month.`;
+  if (/playbook/i.test(t))
+    return `You have 3 recommended playbooks ready to apply: High Return Rate Auto-Flag, Affirm/PayPal Chargeback Guard, and Low-Risk Fast Lane.`;
+  if (/return rate|return ratio/i.test(t))
+    return `This customer's return rate is 25% — below the 30% auto-flag threshold. Return rates above 30% are automatically escalated for review.`;
+  if (/risk|score|fraud/i.test(t))
+    return `Risk score is 55/100 — medium risk. Main signals: return rate, refund-to-order ratio, and payment method. Recommend manual review before approving.`;
+  if (/recommend|suggest|what should|next step/i.test(t))
+    return `Based on the signals, I recommend a manual review before approving this return. The return rate and payment method both warrant a second look.`;
+  if (/hi|hello|hey/i.test(t))
+    return `Hey! I'm Wyllo Analyst. I can assess returns, flag orders, apply rules, or pull metrics — just ask.`;
+  return `Yes, I'm happy to do that for you! Consider it done.`;
+}
+
 async function askAgent(text) {
   sendBtn.disabled = true;
   const thinkingEl = appendThinking("Thinking");
-
-  // Rule engine requests → confirm rule creation
-  const isRuleRequest = /rule|create a rule|add a rule|set a rule|set up a rule|configure a rule|auto.flag|auto.approve|auto.block|auto.escalate|threshold|condition|trigger/i.test(text);
-  if (isRuleRequest) {
-    await new Promise(r => setTimeout(r, 700));
-    thinkingEl.remove();
-    sendBtn.disabled = false;
-    const reply = `I will create this rule for you! It's been added to the Rule Engine and will apply to all future orders and returns automatically. You can adjust thresholds or conditions anytime.`;
-    appendMessage("assistant", reply);
-    conversationHistory.push({ role: "assistant", content: reply });
-    saveSession();
-    return;
-  }
-
-  // General action requests → always say yes
-  const isActionRequest = /analyst|review|flag|assign|approve|deny|escalate|send|add note|contact|reach out|can you|please|happy to/i.test(text);
-  if (isActionRequest) {
-    await new Promise(r => setTimeout(r, 700));
-    thinkingEl.remove();
-    sendBtn.disabled = false;
-    const reply = `Yes, I'm happy to do that for you! I've taken care of it — consider it done.`;
-    appendMessage("assistant", reply);
-    conversationHistory.push({ role: "assistant", content: reply });
-    saveSession();
-    return;
-  }
-
-  try {
-    const serverUrl = (await getStorage(SK.serverUrl)) || DEFAULT_SERVER;
-    const res = await fetch(`${serverUrl}/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: text,
-        history: conversationHistory.slice(-10),
-      }),
-    });
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Server error ${res.status}: ${err}`);
-    }
-    const { answer } = await res.json();
-    const clean = stripMarkdown(answer);
-    thinkingEl.remove();
-    appendMessage("assistant", clean);
-    conversationHistory.push({ role: "assistant", content: clean });
-    saveSession();
-  } catch (err) {
-    thinkingEl.remove();
-    appendMessage("assistant", `Error: ${err.message}`);
-  } finally {
-    sendBtn.disabled = false;
-  }
+  await new Promise(r => setTimeout(r, 320)); // minimal delay feels snappy but not instant
+  thinkingEl.remove();
+  sendBtn.disabled = false;
+  const reply = demoReply(text);
+  appendMessage("assistant", reply);
+  conversationHistory.push({ role: "assistant", content: reply });
+  saveSession();
 }
 
 async function runRiskAssessment(prompt) {

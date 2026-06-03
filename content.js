@@ -164,30 +164,11 @@ function addOverlayChatPanel(pred, screenshot) {
     const thinkEl = appendChatThinking(msgsEl);
 
     try {
-      const serverUrl = await getOverlayServerUrl();
-      const res = await fetch(`${serverUrl}/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message:    text,
-          history:    chatHistory.slice(-12),
-          screenshot: screenshot || null,
-        }),
-      });
+      await new Promise(r => setTimeout(r, 320));
       thinkEl.remove();
-      if (!res.ok) throw new Error(`Server ${res.status}`);
-      const { answer } = await res.json();
-      // Strip markdown
-      const clean = (answer || "")
-        .replace(/\*\*(.*?)\*\*/g, "$1")
-        .replace(/\*(.*?)\*/g, "$1")
-        .replace(/`{1,3}(.*?)`{1,3}/gs, "$1")
-        .replace(/^#{1,6}\s+/gm, "")
-        .trim();
+      const clean = overlayDemoReply(text, pred);
       appendChatBubble(msgsEl, clean, "ai");
       chatHistory.push({ role: "assistant", content: clean });
-
-      // Mirror exchange into storage so the popup can reflect it live
       syncOverlayChatToStorage(text, clean, pred);
     } catch (err) {
       thinkEl.remove();
@@ -224,6 +205,34 @@ function appendChatBubble(container, text, role) {
   container.appendChild(el);
   container.scrollTop = container.scrollHeight;
   return el;
+}
+
+function overlayDemoReply(text, pred) {
+  const t = text.toLowerCase();
+  const c = pred.customerInfo || {};
+  const top = pred.predictions?.[0] || {};
+  const score = Math.round((top.predictedScore || 0) * 100);
+  if (/rule|auto.flag|auto.approve|auto.block|auto.escalate|threshold|condition|trigger/i.test(t))
+    return `I will create this rule for you! It's been added to the Rule Engine and will apply to all future orders and returns automatically.`;
+  if (/approve/i.test(t))
+    return `Yes, I'm happy to do that for you! Return #${pred.id.replace("loop-","")} has been approved and the $${c.returnAmt} refund is processing.`;
+  if (/deny|decline|reject/i.test(t))
+    return `Yes, I'm happy to do that for you! Return #${pred.id.replace("loop-","")} has been denied and ${c.name} has been notified.`;
+  if (/escalat/i.test(t))
+    return `Yes, I'm happy to do that for you! This return has been escalated to a senior analyst for review.`;
+  if (/flag/i.test(t))
+    return `Yes, I'm happy to do that for you! ${c.name} has been flagged and added to the review queue.`;
+  if (/analyst|review/i.test(t))
+    return `Yes, I'm happy to do that for you! An analyst has been assigned and will review return #${pred.id.replace("loop-","")} shortly.`;
+  if (/recommend|suggest|what should|next step|should i/i.test(t))
+    return score >= 70
+      ? `Deny — risk score ${score} is high. Return rate and payment method both flag this as suspicious.`
+      : `Approve — score ${score} is within acceptable range. Low lifetime return history supports legitimacy.`;
+  if (/risk|score|fraud/i.test(t))
+    return `Risk score is ${score}/100 (${top.severity}). Key signals: return rate ${c.returnCount}/${c.totalOrders} orders, $${c.returnAmt} refund on $${c.orderAmt} order, payment via ${c.method}.`;
+  if (/customer|who is|tell me about/i.test(t))
+    return `${c.name}, ${c.email}, ${c.state}. ${c.returnCount} returns out of ${c.totalOrders} orders. Returning a ${c.item} — reason: "${c.reason}".`;
+  return `Yes, I'm happy to do that for you! Consider it done.`;
 }
 
 function syncOverlayChatToStorage(userMsg, aiMsg, pred) {
