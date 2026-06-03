@@ -91,6 +91,39 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // Auto-scan: content script found PII → assess → overlay if risky
+  if (message.type === "AUTO_SCAN") {
+    const tabId = sender.tab?.id;
+    if (!tabId) return;
+
+    const DEFAULT_SERVER = "https://yofi-server-production.up.railway.app";
+    chrome.storage.local.get(["yofi_server_url"], async (data) => {
+      const serverUrl = data.yofi_server_url || DEFAULT_SERVER;
+      const fields    = message.fields || {};
+      try {
+        const res = await fetch(`${serverUrl}/assess`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message:  "Auto-scan: assess fraud risk for this customer.",
+            email:    fields.email   || "",
+            orderId:  fields.orderId || "",
+            pageUrl:  fields.pageUrl || "",
+            fields,
+          }),
+        });
+        if (!res.ok) return;
+        const pred     = await res.json();
+        const severity = pred.predictions?.[0]?.severity || "low";
+        if (severity === "low") return; // only surface medium / high / critical
+        chrome.tabs.sendMessage(tabId, { type: "SHOW_OVERLAY", prediction: pred }, () => {
+          if (chrome.runtime.lastError) { /* tab may not be ready */ }
+        });
+      } catch (_) { /* network error — silently ignore */ }
+    });
+    return; // keep channel open for async (not needed here but harmless)
+  }
+
   // Send overlay directly to the origin tab
   if (message.type === "SHOW_OVERLAY" || message.type === "HIDE_OVERLAY") {
     const sendToTab = (tabId) => {
