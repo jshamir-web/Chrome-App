@@ -15,7 +15,12 @@ function checkLoopReturnsUrl() {
   _loopLastReturnId = returnId;
 
   showLoadingOverlay(returnId);
-  setTimeout(() => showOverlay(generateLoopReturnsPrediction(returnId)), 2200);
+  setTimeout(() => {
+    const pred = generateLoopReturnsPrediction(returnId);
+    showOverlay(pred);
+    // Give the overlay a frame to render, then add the chat panel + screenshot
+    setTimeout(() => captureAndAddChat(pred), 300);
+  }, 2200);
 }
 
 // Patch history API so SPA pushState / replaceState trigger the check
@@ -32,6 +37,207 @@ function checkLoopReturnsUrl() {
 
 // Run on initial page load
 checkLoopReturnsUrl();
+
+// ── Loop Returns: screenshot + AI chat panel ──────────────────────────────────
+async function captureAndAddChat(pred) {
+  let screenshot = null;
+  try {
+    const res = await overlayMsgBg({ type: "CAPTURE_TAB" });
+    if (res?.dataUrl) screenshot = res.dataUrl;
+  } catch (_) {}
+  addOverlayChatPanel(pred, screenshot);
+}
+
+function overlayMsgBg(msg) {
+  return new Promise(resolve =>
+    chrome.runtime.sendMessage(msg, res => {
+      if (chrome.runtime.lastError) resolve({});
+      else resolve(res || {});
+    })
+  );
+}
+
+function getOverlayServerUrl() {
+  return new Promise(resolve =>
+    chrome.storage.local.get(["yofi_server_url"], d =>
+      resolve(d.yofi_server_url || "https://yofi-server-production.up.railway.app")
+    )
+  );
+}
+
+function buildLoopContext(pred) {
+  const c   = pred.customerInfo || {};
+  const top = pred.predictions?.[0] || {};
+  const score = Math.round((top.predictedScore || 0) * 100);
+  return [
+    `You are the Wyllo AI Fraud Analyst. You have been given the following Loop Returns case and must help the analyst make a decision.`,
+    ``,
+    `Return ID: #${pred.id.replace("loop-", "")}`,
+    `Customer: ${c.name} (${c.email}), ${c.state}`,
+    `Item returned: ${c.item}`,
+    `Reason claimed: ${c.reason}`,
+    `Order value: $${c.orderAmt} → Refund requested: $${c.returnAmt}`,
+    `Return history: ${c.returnCount} returns out of ${c.totalOrders} orders (${Math.round((c.returnCount/c.totalOrders)*100)}% return rate)`,
+    `Payment method: ${c.method}`,
+    `Risk score: ${score}/100 — ${top.severity} risk (${(top.predictedLabel||"").replace(/_/g," ")})`,
+    `Tags: ${(pred.tags||[]).join(", ")}`,
+    `Signals: ${(top.signals||[]).map(s => `${s.title} (${s.severity}): ${s.description}`).join(" | ")}`,
+    ``,
+    `Be concise and direct. Recommend approve, deny, or escalate. Explain your reasoning clearly.`,
+  ].join("\n");
+}
+
+function addOverlayChatPanel(pred, screenshot) {
+  const overlay = document.getElementById(OVERLAY_ID);
+  if (!overlay) return;
+  const inner = overlay.querySelector("div");
+  if (!inner) return;
+
+  const returnId = pred.id.replace("loop-", "");
+  const context  = buildLoopContext(pred);
+  let chatHistory = [{ role: "assistant", content: context }];
+  let isThinking  = false;
+
+  const panel = document.createElement("div");
+  panel.style.cssText = "border-top:1.5px solid #2e3248;";
+  panel.innerHTML = `
+    <div style="padding:12px 16px;background:#0a0d18;">
+      <div style="font-size:10px;color:#7a7f9a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;display:flex;align-items:center;gap:5px;">
+        <span style="width:6px;height:6px;background:#4a6fa5;border-radius:50%;display:inline-block;"></span>
+        AI Analyst
+      </div>
+
+      <!-- Chat messages -->
+      <div id="yofi-chat-msgs" style="
+        max-height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;
+        margin-bottom:8px;scrollbar-width:thin;scrollbar-color:#2e3248 transparent;">
+        <div style="background:#141930;border-radius:8px 8px 8px 2px;padding:9px 11px;
+          font-size:11px;color:#c8cadf;line-height:1.55;">
+          I've reviewed return #${returnId} for <strong style="color:#e8eaf6;">${pred.customerInfo?.name || "this customer"}</strong>.
+          Ask me anything — should you approve or deny? Are there other fraud signals? What's the recommended next step?
+        </div>
+      </div>
+
+      <!-- Input row -->
+      <div style="display:flex;gap:6px;align-items:flex-end;">
+        <textarea id="yofi-chat-input" placeholder="Ask about this return…" rows="1" style="
+          flex:1;background:#1a1d27;border:1px solid #2e3248;border-radius:8px;
+          color:#e8eaf6;font-size:11px;padding:8px 10px;resize:none;outline:none;
+          font-family:'Segoe UI',system-ui,sans-serif;line-height:1.4;
+          min-height:34px;max-height:80px;box-sizing:border-box;"></textarea>
+        <button id="yofi-chat-send" style="
+          background:#4a6fa5;border:none;border-radius:8px;color:#fff;
+          width:34px;height:34px;font-size:18px;cursor:pointer;flex-shrink:0;
+          display:flex;align-items:center;justify-content:center;line-height:1;">↑</button>
+      </div>
+
+      ${screenshot ? `
+      <div style="margin-top:6px;font-size:9px;color:#4a6fa5;display:flex;align-items:center;gap:4px;">
+        <span>📸</span> Page screenshot attached for visual context
+      </div>` : ""}
+    </div>
+  `;
+
+  inner.appendChild(panel);
+
+  const msgsEl   = panel.querySelector("#yofi-chat-msgs");
+  const inputEl  = panel.querySelector("#yofi-chat-input");
+  const sendEl   = panel.querySelector("#yofi-chat-send");
+
+  // Auto-resize textarea
+  inputEl.addEventListener("input", () => {
+    inputEl.style.height = "auto";
+    inputEl.style.height = Math.min(inputEl.scrollHeight, 80) + "px";
+  });
+
+  async function sendChat() {
+    const text = inputEl.value.trim();
+    if (!text || isThinking) return;
+    inputEl.value = "";
+    inputEl.style.height = "auto";
+    isThinking = true;
+    sendEl.disabled = true;
+
+    // User bubble
+    appendChatBubble(msgsEl, text, "user");
+    chatHistory.push({ role: "user", content: text });
+
+    // Thinking indicator
+    const thinkEl = appendChatThinking(msgsEl);
+
+    try {
+      const serverUrl = await getOverlayServerUrl();
+      const res = await fetch(`${serverUrl}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message:    text,
+          history:    chatHistory.slice(-12),
+          screenshot: screenshot || null,
+        }),
+      });
+      thinkEl.remove();
+      if (!res.ok) throw new Error(`Server ${res.status}`);
+      const { answer } = await res.json();
+      // Strip markdown
+      const clean = (answer || "")
+        .replace(/\*\*(.*?)\*\*/g, "$1")
+        .replace(/\*(.*?)\*/g, "$1")
+        .replace(/`{1,3}(.*?)`{1,3}/gs, "$1")
+        .replace(/^#{1,6}\s+/gm, "")
+        .trim();
+      appendChatBubble(msgsEl, clean, "ai");
+      chatHistory.push({ role: "assistant", content: clean });
+    } catch (err) {
+      thinkEl.remove();
+      appendChatBubble(msgsEl, `Error: ${err.message}`, "error");
+    } finally {
+      isThinking = false;
+      sendEl.disabled = false;
+    }
+  }
+
+  sendEl.addEventListener("click", sendChat);
+  inputEl.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChat(); }
+  });
+}
+
+function appendChatBubble(container, text, role) {
+  const el = document.createElement("div");
+  if (role === "user") {
+    el.style.cssText = `
+      background:#2e3a5c;border-radius:8px 8px 2px 8px;padding:8px 11px;
+      font-size:11px;color:#e8eaf6;line-height:1.5;align-self:flex-end;
+      max-width:92%;margin-left:auto;`;
+  } else if (role === "error") {
+    el.style.cssText = `
+      background:#2a0a0a;border:1px solid #f55b5b44;border-radius:8px 8px 8px 2px;
+      padding:8px 11px;font-size:11px;color:#f55b5b;line-height:1.5;`;
+  } else {
+    el.style.cssText = `
+      background:#141930;border-radius:8px 8px 8px 2px;padding:8px 11px;
+      font-size:11px;color:#c8cadf;line-height:1.55;white-space:pre-wrap;`;
+  }
+  el.textContent = text;
+  container.appendChild(el);
+  container.scrollTop = container.scrollHeight;
+  return el;
+}
+
+function appendChatThinking(container) {
+  const el = document.createElement("div");
+  el.style.cssText = `
+    background:#141930;border-radius:8px 8px 8px 2px;padding:8px 11px;
+    font-size:11px;color:#7a7f9a;display:flex;align-items:center;gap:6px;`;
+  el.innerHTML = `
+    <div style="width:14px;height:14px;border-radius:50%;border:2px solid #4a6fa5;
+      border-top-color:transparent;animation:yofi-spin 0.8s linear infinite;flex-shrink:0;"></div>
+    Thinking…`;
+  container.appendChild(el);
+  container.scrollTop = container.scrollHeight;
+  return el;
+}
 
 // Generate deterministic mock customer + risk data from the return ID
 function generateLoopReturnsPrediction(returnId) {
