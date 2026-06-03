@@ -1,9 +1,139 @@
 const OVERLAY_ID = "yofi-risk-overlay";
 
+// ── Loop Returns URL detection ────────────────────────────────────────────────
+(function loopReturnsScan() {
+  const loopMatch = location.href.match(/admin\.loopreturns\.com\/returns\/(\d+)/);
+  if (!loopMatch) return;
+
+  const returnId = loopMatch[1];
+
+  // Step 1: show "analyzing" loading overlay
+  showLoadingOverlay(returnId);
+
+  // Step 2: after a short pause, swap in the full mock risk result
+  setTimeout(() => {
+    showOverlay(generateLoopReturnsPrediction(returnId));
+  }, 2200);
+})();
+
+// Generate deterministic mock customer + risk data from the return ID
+function generateLoopReturnsPrediction(returnId) {
+  const seed = parseInt(returnId.slice(-4), 10);
+
+  const firstNames = ["Madison","Taylor","Jordan","Casey","Riley","Morgan","Jamie","Avery","Quinn","Blake"];
+  const lastNames  = ["Holloway","Prescott","Weston","Callahan","Mercer","Davenport","Langley","Thornton","Ashford","Vance"];
+  const emails     = ["gmail.com","yahoo.com","hotmail.com","outlook.com","icloud.com"];
+  const states     = ["CA","TX","FL","NY","IL","WA","AZ","CO","GA","NC"];
+  const items      = ["Sneakers","Jacket","Watch","Handbag","Sunglasses","Boots","Hoodie","Dress","Backpack","Wallet"];
+  const reasons    = ["Wrong size","Defective item","Changed mind","Not as described","Arrived too late","Duplicate order"];
+  const methods    = ["Visa","Mastercard","AmEx","PayPal","Shop Pay","Affirm"];
+
+  const fn   = firstNames[seed % firstNames.length];
+  const ln   = lastNames[(seed + 3) % lastNames.length];
+  const name = `${fn} ${ln}`;
+  const email = `${fn.toLowerCase()}.${ln.toLowerCase()}${seed % 100}@${emails[seed % emails.length]}`;
+  const state = states[(seed + 1) % states.length];
+  const item  = items[(seed + 2) % items.length];
+  const reason = reasons[(seed + 4) % reasons.length];
+  const method = methods[(seed + 5) % methods.length];
+  const orderAmt = (49 + (seed % 200) + ((seed * 7) % 50)).toFixed(2);
+  const returnAmt = (parseFloat(orderAmt) * (0.5 + (seed % 5) * 0.1)).toFixed(2);
+  const returnCount = 1 + (seed % 7);
+  const totalOrders = returnCount + 1 + (seed % 5);
+
+  // Score driven by return frequency, amount, and method
+  const rawScore = Math.min(0.97, 0.28 + (returnCount / 10) * 0.4 + ((seed % 30) / 100));
+  const score = parseFloat(rawScore.toFixed(2));
+  const severity = score >= 0.75 ? "high" : score >= 0.5 ? "medium" : "low";
+
+  const tags = ["loop_returns"];
+  if (returnCount >= 4) tags.push("repeat_returner");
+  if (score >= 0.75)    tags.push("high_risk");
+  if (method === "PayPal" || method === "Affirm") tags.push("flagged_payment_method");
+
+  return {
+    id: `loop-${returnId}`,
+    tags,
+    customerInfo: { name, email, state, method, item, reason, orderAmt, returnAmt, returnCount, totalOrders },
+    predictions: [{
+      predictedLabel: score >= 0.75 ? "return_fraud" : score >= 0.5 ? "policy_abuse" : "legitimate_return",
+      predictedScore: score,
+      severity,
+      justification: `Return #${returnId} flagged for ${name} (${email}). Customer has ${returnCount} return${returnCount > 1 ? "s" : ""} out of ${totalOrders} total orders — a ${Math.round((returnCount / totalOrders) * 100)}% return rate. Claimed reason: "${reason}." Item: ${item}, refund value $${returnAmt} vs. order $${orderAmt}. Payment via ${method}.`,
+      signals: [
+        {
+          title: "High Return Rate",
+          description: `${returnCount} returns from ${totalOrders} orders (${Math.round((returnCount/totalOrders)*100)}%). Customers above 30% return rate are flagged automatically.`,
+          category: "behavior",
+          severity: returnCount >= 4 ? "high" : "medium",
+          impactScore: Math.min(0.9, 0.3 + returnCount * 0.08),
+          value: `${returnCount}/${totalOrders}`,
+        },
+        {
+          title: "Return Amount vs. Order Value",
+          description: `Requesting refund of $${returnAmt} on a $${orderAmt} order (${Math.round((parseFloat(returnAmt)/parseFloat(orderAmt))*100)}% of order value).`,
+          category: "financials",
+          severity: parseFloat(returnAmt) / parseFloat(orderAmt) > 0.8 ? "high" : "medium",
+          impactScore: parseFloat(returnAmt) / parseFloat(orderAmt) * 0.85,
+          value: `$${returnAmt}`,
+        },
+        {
+          title: "Payment Method Risk",
+          description: `${method} ${method === "PayPal" || method === "Affirm" ? "has elevated chargeback exposure on return disputes" : "has standard chargeback risk profile"}.`,
+          category: "payment",
+          severity: method === "PayPal" || method === "Affirm" ? "medium" : "low",
+          impactScore: method === "PayPal" || method === "Affirm" ? 0.55 : 0.2,
+          value: method,
+        },
+      ],
+    }],
+    segments: [
+      { name: "Loop Returns Customer", code: "LOOP", segmentType: "platform" },
+      { name: returnCount >= 4 ? "Frequent Returner" : "Occasional Returner", code: returnCount >= 4 ? "FREQ-RET" : "OCC-RET", segmentType: "behavior" },
+    ],
+    analytics: [
+      { metricName: "total_orders",   metricValue: totalOrders, period: "lifetime" },
+      { metricName: "total_returns",  metricValue: returnCount, period: "lifetime" },
+      { metricName: "return_rate",    metricValue: `${Math.round((returnCount/totalOrders)*100)}%`, period: "lifetime" },
+      { metricName: "avg_order_value", metricValue: `$${orderAmt}`, period: "lifetime" },
+    ],
+  };
+}
+
+// Shows a pulsing "analyzing" overlay before the result loads
+function showLoadingOverlay(returnId) {
+  removeOverlay();
+  const el = document.createElement("div");
+  el.id = OVERLAY_ID;
+  el.style.cssText = `
+    position:fixed;top:16px;right:16px;z-index:2147483647;
+    font-family:'Segoe UI',system-ui,sans-serif;
+    width:320px;
+  `;
+  el.innerHTML = `
+    <div style="background:#0f1117;border:1.5px solid #4a6fa5;border-radius:14px;overflow:hidden;
+      box-shadow:0 12px 48px rgba(0,0,0,.8);padding:18px 20px;">
+      <div style="font-size:10px;color:#7a7f9a;text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px;">Yofi Risk Assessment</div>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="width:36px;height:36px;border-radius:50%;border:3px solid #4a6fa5;border-top-color:transparent;
+          animation:yofi-spin 0.8s linear infinite;flex-shrink:0;"></div>
+        <div>
+          <div style="font-size:13px;font-weight:600;color:#e8eaf6;">Analyzing return #${returnId}</div>
+          <div style="font-size:11px;color:#7a7f9a;margin-top:3px;">Looking up customer profile…</div>
+        </div>
+      </div>
+      <style>@keyframes yofi-spin{to{transform:rotate(360deg)}}</style>
+    </div>
+  `;
+  document.body.appendChild(el);
+}
+
 // ── Auto-scan on page load ────────────────────────────────────────────────────
 (function autoScan() {
   // Only run once per page; skip non-http pages
   if (!location.href.startsWith("http")) return;
+  // Loop Returns URLs are handled by the loopReturnsScan above
+  if (location.href.match(/admin\.loopreturns\.com\/returns\/\d+/)) return;
 
   const fields = scrapePage();
   const hasIdentifiers = fields.email || fields.orderId || fields.phone || fields.name;
@@ -206,6 +336,32 @@ function showOverlay(pred) {
         <!-- Tags -->
         ${tagsHtml ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;">${tagsHtml}</div>` : ""}
       </div>
+
+      <!-- Customer Info (Loop Returns) -->
+      ${pred.customerInfo ? (() => {
+        const c = pred.customerInfo;
+        const rows = [
+          ["Name",    c.name],
+          ["Email",   c.email],
+          ["State",   c.state],
+          ["Item",    c.item],
+          ["Reason",  c.reason],
+          ["Payment", c.method],
+          ["Order $", `$${c.orderAmt}`],
+          ["Refund $",`$${c.returnAmt}`],
+        ];
+        return `
+        <div style="padding:12px 16px;border-bottom:1px solid #2e3248;background:#111420;">
+          <div style="font-size:10px;color:#7a7f9a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Customer Profile</div>
+          <table style="width:100%;border-collapse:collapse;">
+            ${rows.map(([k,v]) => `
+            <tr>
+              <td style="font-size:10px;color:#7a7f9a;padding:3px 0;width:72px;">${k}</td>
+              <td style="font-size:11px;color:#e8eaf6;padding:3px 0;word-break:break-all;">${v}</td>
+            </tr>`).join("")}
+          </table>
+        </div>`;
+      })() : ""}
 
       <!-- Justification -->
       ${topPrediction.justification ? `
