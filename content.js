@@ -15,15 +15,16 @@ const PLATFORM_PATTERNS = [
     name: "shopify",
     label: "Shopify",
     regex: /admin\.shopify\.com\/store\/([^/]+)\/customers\/(\d+)/,
-    loadingLabel: (_, store, cid) => `Looking up customer #${cid} on ${store}`,
-    generatePred: (_, store, cid) => generateShopifyPrediction(store, cid),
+    loadingLabel: (store, cid) => `Looking up customer #${cid} on ${store}`,
+    generatePred: (store, cid) => generateShopifyPrediction(store, cid),
   },
   {
-    name: "kustomer",
-    label: "Kustomer",
-    regex: /kustomerapp\.com\/app\/customers\/([a-f0-9]+)/,
-    loadingLabel: id => `Loading Kustomer profile ${id.slice(0,8)}…`,
-    generatePred: id => generateKustomerPrediction(id),
+    name: "gorgias",
+    label: "Gorgias",
+    // matches *.gorgias.com/app/tickets/123 and *.gorgias.com/tickets/123
+    regex: /[a-z0-9-]+\.gorgias\.com\/(?:app\/)?tickets\/(\d+)/,
+    loadingLabel: id => `Loading ticket #${id} from Gorgias`,
+    generatePred: id => generateGorgiasPrediction(id),
   },
 ];
 
@@ -296,6 +297,20 @@ function customerVerdict(pred) {
       return `${c.name} has a mixed history on ${c.store}. ${cb > 0 ? `${cb} chargeback(s) on record — a yellow flag.` : "No chargebacks, but dispute rate is above baseline."} $${c.totalSpend} lifetime spend over ${c.totalOrders} orders. Worth monitoring before extending any high-value orders.`;
     } else {
       return `${c.name} is a good customer on ${c.store}. $${c.totalSpend} in lifetime spend, ${c.totalOrders} orders, no chargebacks, clean payment history via ${c.method}. High-value and trustworthy — no action needed.`;
+    }
+  }
+
+  // ── Gorgias verdict ──────────────────────────────────────────────────────
+  if (pred.id?.startsWith("gorgias-")) {
+    const tickets = c.priorTickets || 0;
+    const sent = c.sentiment || "Neutral";
+    const tid = pred.id.replace("gorgias-", "");
+    if (score >= 70) {
+      return `${c.name} is high risk — ticket #${tid} shows ${sent.toLowerCase()} sentiment${c.chargebackThreat ? " with chargeback language detected" : ""}. They have ${tickets} prior ticket(s) and contacted via "${c.intent}". Escalate and consider a proactive resolution before they file a dispute.`;
+    } else if (score >= 45) {
+      return `${c.name} warrants attention on ticket #${tid}. ${sent} sentiment, ${tickets} prior contact(s), issue: "${c.intent}". No immediate chargeback risk, but worth prioritizing to prevent escalation.`;
+    } else {
+      return `${c.name} is a low-risk contact on ticket #${tid}. ${sent} sentiment, straightforward "${c.intent}" request. Standard handling is fine.`;
     }
   }
 
@@ -575,6 +590,87 @@ function generateShopifyPrediction(store, customerId) {
   };
 }
 
+// ── Gorgias ticket prediction ─────────────────────────────────────────────────
+function generateGorgiasPrediction(ticketId) {
+  const seed = parseInt(ticketId.slice(-4), 10) % 10000;
+
+  const firstNames = ["Alex","Jamie","Sam","Chris","Drew","Jordan","Taylor","Morgan","Casey","Riley"];
+  const lastNames  = ["Hammond","Reeves","Stanton","Briggs","Fowler","Graves","Holt","Ingram","Jennings","Kane"];
+  const channels   = ["Email","Live Chat","Phone","Instagram","Facebook","SMS"];
+  const intents    = ["refund request","order not received","damaged item","cancel order","wrong item sent","billing dispute","chargeback threat","returns abuse flag"];
+  const sentiments = ["Positive","Neutral","Negative","Very Negative"];
+  const methods    = ["Visa","Mastercard","AmEx","PayPal","Shop Pay","Affirm"];
+
+  const fn   = firstNames[seed % firstNames.length];
+  const ln   = lastNames[(seed + 3) % lastNames.length];
+  const name = `${fn} ${ln}`;
+  const email = `${fn.toLowerCase()}.${ln.toLowerCase()}${seed % 99}@${["gmail.com","outlook.com","yahoo.com"][seed % 3]}`;
+  const channel   = channels[seed % channels.length];
+  const intent    = intents[(seed + 1) % intents.length];
+  const sentiment = sentiments[seed % sentiments.length];
+  const method    = methods[(seed + 2) % methods.length];
+  const priorTickets = seed % 8;
+  const orderValue   = (49 + (seed % 300)).toFixed(2);
+  const chargebackThreat = intent === "chargeback threat" || intent === "billing dispute";
+  const rawScore = Math.min(0.96,
+    0.2 +
+    (chargebackThreat ? 0.35 : 0) +
+    (sentiment === "Very Negative" ? 0.2 : sentiment === "Negative" ? 0.1 : 0) +
+    (priorTickets >= 4 ? 0.15 : priorTickets >= 2 ? 0.07 : 0) +
+    ((seed % 20) / 100)
+  );
+  const score    = parseFloat(rawScore.toFixed(2));
+  const severity = score >= 0.7 ? "high" : score >= 0.45 ? "medium" : "low";
+
+  return {
+    id: `gorgias-${ticketId}`,
+    tags: ["gorgias", chargebackThreat ? "chargeback_risk" : "standard_cx", sentiment.toLowerCase().replace(" ", "_")],
+    customerInfo: { name, email, channel, intent, sentiment, method, priorTickets, orderValue, chargebackThreat },
+    predictions: [{
+      predictedLabel: score >= 0.7 ? "high_risk_cx" : score >= 0.45 ? "needs_attention" : "low_risk_cx",
+      predictedScore: score,
+      severity,
+      justification: `Gorgias ticket #${ticketId} from ${name} (${email}) via ${channel}. Intent: "${intent}". Sentiment: ${sentiment}. ${priorTickets} prior ticket(s). Order value $${orderValue} paid via ${method}. ${chargebackThreat ? "Chargeback language detected — elevated risk." : "No chargeback indicators."}`,
+      signals: [
+        {
+          title: "Contact Intent",
+          description: `Customer reached out about "${intent}" via ${channel}. ${chargebackThreat ? "Chargeback/dispute language in this ticket is a strong predictor of financial loss." : "Intent is standard support — low inherent fraud risk."}`,
+          category: "cx",
+          severity: chargebackThreat ? "high" : "low",
+          impactScore: chargebackThreat ? 0.85 : 0.15,
+          value: intent,
+        },
+        {
+          title: "Customer Sentiment",
+          description: `${sentiment} sentiment detected. Very Negative sentiment has a 3× higher chargeback conversion rate than Positive.`,
+          category: "cx",
+          severity: sentiment === "Very Negative" ? "high" : sentiment === "Negative" ? "medium" : "low",
+          impactScore: sentiment === "Very Negative" ? 0.75 : sentiment === "Negative" ? 0.45 : 0.1,
+          value: sentiment,
+        },
+        {
+          title: "Prior Ticket History",
+          description: `${priorTickets} prior support ticket(s). Repeat contacts with unresolved issues significantly increase dispute probability.`,
+          category: "behavior",
+          severity: priorTickets >= 4 ? "high" : priorTickets >= 2 ? "medium" : "low",
+          impactScore: Math.min(0.8, priorTickets * 0.12 + 0.1),
+          value: `${priorTickets} tickets`,
+        },
+      ],
+    }],
+    segments: [
+      { name: "Gorgias Contact",  code: "GRG", segmentType: "platform" },
+      { name: chargebackThreat ? "Chargeback Risk" : "Standard Support", code: chargebackThreat ? "CB-RISK" : "STD-CX", segmentType: "risk" },
+    ],
+    analytics: [
+      { metricName: "ticket_id",       metricValue: `#${ticketId}`,  period: "current" },
+      { metricName: "prior_tickets",   metricValue: priorTickets,     period: "lifetime" },
+      { metricName: "order_value",     metricValue: `$${orderValue}`, period: "current" },
+      { metricName: "channel",         metricValue: channel,          period: "current" },
+    ],
+  };
+}
+
 // ── Kustomer customer prediction ──────────────────────────────────────────────
 function generateKustomerPrediction(customerId) {
   const seed = parseInt(customerId.replace(/[^0-9]/g, "").slice(-5) || "42731", 10) % 10000;
@@ -650,46 +746,8 @@ function generateKustomerPrediction(customerId) {
   };
 }
 
-// ── Auto-scan on page load ────────────────────────────────────────────────────
-(function autoScan() {
-  // Only run once per page; skip non-http pages
-  if (!location.href.startsWith("http")) return;
-  // Handled by checkPlatformUrl above
-  if (location.href.match(/admin\.loopreturns\.com|admin\.shopify\.com.*\/customers\/|kustomerapp\.com\/app\/customers\//)) return;
-
-  const fields = scrapePage();
-  const hasIdentifiers = fields.email || fields.orderId || fields.phone || fields.name;
-  if (!hasIdentifiers) return;
-
-  if (fields.email?.toLowerCase() === "jordan@yofi.ai") {
-    showOverlay({
-      id: "hardcoded-high-risk",
-      tags: ["flagged_account", "high_risk_email"],
-      predictions: [{
-        predictedLabel: "confirmed_fraud",
-        predictedScore: 0.97,
-        severity: "high",
-        justification: "This email address (jordan@yofi.ai) is a known high-risk identifier and has been automatically flagged.",
-        signals: [{
-          title: "Flagged Email Address",
-          description: "jordan@yofi.ai is hardcoded as a high-risk identifier.",
-          category: "identity",
-          severity: "high",
-          impactScore: 0.97,
-          value: fields.email,
-        }],
-      }],
-      segments: [],
-      analytics: [],
-    });
-    return;
-  }
-
-  chrome.runtime.sendMessage({ type: "AUTO_SCAN", fields }, () => {
-    // Ignore response — overlay will be pushed back if high risk
-    if (chrome.runtime.lastError) { /* extension not ready yet, ignore */ }
-  });
-})();
+// ── Platform gate — overlay only fires on Gorgias, Shopify, or Loop Returns ──
+// checkPlatformUrl() above handles all three; nothing else gets an overlay.
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "SHOW_OVERLAY") {
